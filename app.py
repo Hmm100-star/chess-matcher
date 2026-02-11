@@ -23,11 +23,20 @@ from flask import (
 from flask import has_request_context
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-from db import Base, database_url_warnings, engine, redacted_database_url, session_scope
+from db import (
+    Base,
+    IS_PRODUCTION,
+    database_url_warnings,
+    engine,
+    redacted_database_url,
+    session_scope,
+    verify_schema_compatibility,
+)
 from models import Attendance, Classroom, HomeworkEntry, Match, Round, Student, Teacher
 from pairing_logic import normalize_weights
 from services import create_match_records, generate_matches_for_students, recalculate_totals
@@ -67,8 +76,19 @@ def initialize_database() -> None:
             extra={"database_url": redacted_database_url()},
         )
         Base.metadata.create_all(bind=engine)
+        schema_issues = verify_schema_compatibility(fail_fast=IS_PRODUCTION)
+        if schema_issues:
+            logger.warning(
+                "Database schema compatibility issues detected",
+                extra={"database_url": redacted_database_url(), "issues": schema_issues},
+            )
+        else:
+            logger.info("Database schema compatibility check passed")
         _tables_initialized = True
         logger.info("Database initialization completed")
+    except RuntimeError:
+        # Preserve fail-fast behavior for production schema incompatibility checks.
+        raise
     except Exception:
         logger.exception(
             "Database initialization failed; will retry on next request",
@@ -139,7 +159,7 @@ def get_classroom_or_404(classroom_id: int, teacher_id: int) -> Classroom:
 
 
 def log_exception(error: Exception, support_id: str) -> None:
-    extra = {"support_id": support_id}
+    extra = {"support_id": support_id, "error_type": type(error).__name__}
     if has_request_context():
         extra.update(
             {
@@ -438,6 +458,16 @@ def new_round(classroom_id: int) -> str:
                     error = "At least two present students are required to create matches."
                 else:
                     try:
+                        logger.info(
+                            "Round generation started",
+                            extra={
+                                "phase": "pairing",
+                                "classroom_id": classroom_id,
+                                "teacher_id": teacher.id,
+                                "present_student_count": len(present_students),
+                                "absent_student_count": len(absent_ids),
+                            },
+                        )
                         normalized_win, normalized_homework = normalize_weights(
                             win_weight, homework_weight
                         )
@@ -473,6 +503,19 @@ def new_round(classroom_id: int) -> str:
                             record.round_id = round_record.id
                             record.homework_entry = HomeworkEntry()
                             db.add(record)
+
+                        logger.info(
+                            "Round generation completed",
+                            extra={
+                                "phase": "insert",
+                                "classroom_id": classroom_id,
+                                "round_id": round_record.id,
+                                "teacher_id": teacher.id,
+                                "match_count": len(match_records),
+                                "paired_match_count": len(matches),
+                                "bye_count": len(unpaired),
+                            },
+                        )
 
                         return redirect(
                             url_for(
@@ -511,6 +554,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
 
         matches = (
             db.query(Match)
+            .options(selectinload(Match.homework_entry))
             .filter(Match.round_id == round_id)
             .order_by(Match.id)
             .all()
@@ -581,6 +625,16 @@ def round_results(classroom_id: int, round_id: int) -> str:
             except ValueError as exc:
                 error = str(exc)
 
+    logger.info(
+        "Round results rendered",
+        extra={
+            "phase": "render",
+            "classroom_id": classroom_id,
+            "round_id": round_id,
+            "teacher_id": teacher.id,
+            "match_count": len(matches),
+        },
+    )
     return render_template(
         "round_results.html",
         classroom=classroom,

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from sqlalchemy import inspect, text
 
-from db import database_url_warnings, engine, redacted_database_url
+from db import (
+    database_url_warnings,
+    engine,
+    redacted_database_url,
+    schema_compatibility_issues,
+)
 
 
 def main() -> int:
@@ -44,6 +49,18 @@ def main() -> int:
     except Exception as error:
         print(f"schema_check: error ({type(error).__name__}) {error}")
         return 3
+
+    try:
+        issues = schema_compatibility_issues()
+        if issues:
+            print("schema_compatibility: issues")
+            for issue in issues:
+                print(f"- {issue}")
+            return 4
+        print("schema_compatibility: ok")
+    except Exception as error:
+        print(f"schema_compatibility: error ({type(error).__name__}) {error}")
+        return 5
 
     return 0
 

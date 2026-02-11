@@ -116,8 +116,32 @@ python3 scripts/db_diagnose.py
 What you should see:
 - `connection: ok`
 - `missing_tables: none`
+- `schema_compatibility: ok`
 
 If not:
 - Fix `DATABASE_URL` format: `postgresql+psycopg://...?...sslmode=require`
 - URL-encode password characters like `@ : / ? # &`
 - If connection limits appear, switch to the Supabase pooler URL.
+
+Production Schema Migration Runbook
+-----------------------------------
+When deploying model changes to Supabase Postgres:
+
+1. Run diagnostics against the target database:
+
+```
+python3 scripts/db_diagnose.py
+```
+
+2. If `schema_compatibility: issues` appears, apply:
+
+```
+migrations/2026-02-11_schema_compatibility_patch.sql
+```
+
+3. Re-run diagnostics until `schema_compatibility: ok`.
+4. Deploy app code after schema is compatible.
+
+Note:
+- The app performs a startup schema check and fails fast in production if required columns are missing.
+- `Base.metadata.create_all(...)` creates missing tables but does not alter existing table definitions.

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 from urllib.parse import parse_qs, urlsplit
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 
@@ -36,6 +36,53 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+REQUIRED_SCHEMA: dict[str, set[str]] = {
+    "teachers": {"id", "username", "password_hash", "created_at"},
+    "classrooms": {"id", "teacher_id", "name", "created_at"},
+    "students": {
+        "id",
+        "classroom_id",
+        "name",
+        "total_wins",
+        "total_losses",
+        "total_ties",
+        "times_white",
+        "times_black",
+        "homework_correct",
+        "homework_incorrect",
+        "notes",
+        "active",
+    },
+    "rounds": {
+        "id",
+        "classroom_id",
+        "created_at",
+        "win_weight",
+        "homework_weight",
+        "status",
+    },
+    "attendance": {"id", "round_id", "student_id", "status"},
+    "matches": {
+        "id",
+        "round_id",
+        "white_student_id",
+        "black_student_id",
+        "white_strength",
+        "black_strength",
+        "result",
+        "notes",
+        "updated_at",
+    },
+    "homework_entries": {
+        "id",
+        "match_id",
+        "white_correct",
+        "white_incorrect",
+        "black_correct",
+        "black_incorrect",
+    },
+}
 
 
 def redacted_database_url(url: str | None = None) -> str:
@@ -93,6 +140,35 @@ def database_url_warnings(url: str | None = None) -> list[str]:
         warnings.append("Production is using local SQLite fallback URL.")
 
     return warnings
+
+
+def schema_compatibility_issues() -> list[str]:
+    """Return human-readable issues for missing tables or columns."""
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    issues: list[str] = []
+
+    for table_name, required_columns in REQUIRED_SCHEMA.items():
+        if table_name not in existing_tables:
+            issues.append(f"missing table: {table_name}")
+            continue
+        existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+        missing_columns = sorted(required_columns - existing_columns)
+        for column_name in missing_columns:
+            issues.append(f"missing column: {table_name}.{column_name}")
+    return issues
+
+
+def verify_schema_compatibility(fail_fast: bool = False) -> list[str]:
+    """Inspect schema compatibility and optionally raise in production."""
+    issues = schema_compatibility_issues()
+    if fail_fast and issues:
+        joined = "; ".join(issues)
+        raise RuntimeError(
+            "Database schema is incompatible with the current app models. "
+            f"Apply migrations before starting the app. Issues: {joined}"
+        )
+    return issues
 
 
 @contextmanager
