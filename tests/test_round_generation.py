@@ -165,6 +165,66 @@ class RoundGenerationFlowTests(unittest.TestCase):
         self.assertNotIn("We hit an unexpected error", body)
 
 
+
+    def test_login_redirects_to_setup_when_no_teachers(self) -> None:
+        response = self.client.get("/login", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/setup")
+
+    def test_setup_redirects_to_login_when_teacher_already_exists(self) -> None:
+        self._bootstrap_teacher_and_login()
+
+        response = self.client.get("/setup", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+    def test_signup_allows_second_teacher_creation(self) -> None:
+        self._bootstrap_teacher_and_login()
+
+        signup_page = self.client.get("/signup")
+        self.assertEqual(signup_page.status_code, 200)
+        csrf = self._extract_csrf(signup_page.get_data(as_text=True))
+
+        response = self.client.post(
+            "/signup",
+            data={
+                "csrf_token": csrf,
+                "username": "teacher2",
+                "password": "pw2",
+                "confirm_password": "pw2",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+        with self.db.session_scope() as db_session:
+            teacher_count = db_session.query(self.app_module.Teacher).count()
+
+        self.assertEqual(teacher_count, 2)
+
+    def test_signup_duplicate_username_shows_validation_error(self) -> None:
+        self._bootstrap_teacher_and_login()
+
+        signup_page = self.client.get("/signup")
+        csrf = self._extract_csrf(signup_page.get_data(as_text=True))
+
+        response = self.client.post(
+            "/signup",
+            data={
+                "csrf_token": csrf,
+                "username": "teacher1",
+                "password": "pw2",
+                "confirm_password": "pw2",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Username is already taken.", response.get_data(as_text=True))
+
+
 class SchemaVerificationTests(unittest.TestCase):
     def test_verify_schema_compatibility_fail_fast_raises(self) -> None:
         db = importlib.import_module("db")

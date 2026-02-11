@@ -11,11 +11,12 @@ Overview
 
 How to Use (Web)
 ----------------
-1. Visit the app and create the first teacher account (one-time setup).
-2. Create a class and add students manually or import `Student_Information.csv`.
-3. Start a new round, mark absences, and generate pairings.
-4. Record results, homework counts, and notes on the round results page.
-5. Export CSVs whenever you need offline copies.
+1. Visit the app and create the first teacher account via `/setup` (first-run onboarding).
+2. Additional teachers can register anytime via `/signup`, then sign in at `/login`.
+3. Create a class and add students manually or import `Student_Information.csv`.
+4. Start a new round, mark absences, and generate pairings.
+5. Record results, homework counts, and notes on the round results page.
+6. Export CSVs whenever you need offline copies.
 
 CSV Compatibility
 -----------------
@@ -28,6 +29,7 @@ Local Development
 - Install dependencies: `pip install -r requirements.txt`.
 - Start the app: `python app.py`.
 - Visit `http://localhost:5000` and complete the initial teacher setup.
+- Use `/signup` to create additional teacher accounts as needed.
 
 Configuration
 -------------
