@@ -22,7 +22,7 @@ from flask import (
 )
 from flask import has_request_context
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -138,6 +138,45 @@ def current_teacher_id() -> Optional[int]:
     return session.get("teacher_id")
 
 
+def validate_and_create_teacher(
+    username: str,
+    password: str,
+    confirm_password: str,
+) -> Optional[str]:
+    """Create a teacher account if input is valid.
+
+    Returns an error message when validation fails, otherwise ``None``.
+    """
+
+    normalized_username = username.strip()
+
+    if not normalized_username or not password:
+        return "Username and password are required."
+    if password != confirm_password:
+        return "Passwords do not match."
+
+    with session_scope() as db:
+        existing_teacher = (
+            db.query(Teacher)
+            .filter(Teacher.username.ilike(normalized_username))
+            .first()
+        )
+        if existing_teacher:
+            return "Username is already taken."
+
+        teacher = Teacher(
+            username=normalized_username,
+            password_hash=generate_password_hash(password),
+        )
+        db.add(teacher)
+        try:
+            db.flush()
+        except IntegrityError:
+            return "Username is already taken."
+
+    return None
+
+
 def require_login() -> Teacher:
     teacher_id = current_teacher_id()
     if not teacher_id:
@@ -198,24 +237,39 @@ def setup() -> str:
     error = None
     if request.method == "POST":
         require_csrf()
-        username = request.form.get("username", "").strip()
+        username = request.form.get("username", "")
         password = request.form.get("password", "")
         confirm = request.form.get("confirm_password", "")
 
-        if not username or not password:
-            error = "Username and password are required."
-        elif password != confirm:
-            error = "Passwords do not match."
-        else:
-            with session_scope() as db:
-                teacher = Teacher(
-                    username=username,
-                    password_hash=generate_password_hash(password),
-                )
-                db.add(teacher)
+        error = validate_and_create_teacher(
+            username=username,
+            password=password,
+            confirm_password=confirm,
+        )
+        if not error:
             return redirect(url_for("login"))
 
     return render_template("setup.html", error=error)
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup() -> str:
+    error = None
+    if request.method == "POST":
+        require_csrf()
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+
+        error = validate_and_create_teacher(
+            username=username,
+            password=password,
+            confirm_password=confirm,
+        )
+        if not error:
+            return redirect(url_for("login"))
+
+    return render_template("signup.html", error=error)
 
 
 @app.route("/login", methods=["GET", "POST"])
