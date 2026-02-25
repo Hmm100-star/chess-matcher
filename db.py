@@ -7,6 +7,7 @@ from typing import Iterator
 from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy import create_engine, inspect
+from sqlalchemy import text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 
@@ -83,6 +84,18 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "black_incorrect",
     },
 }
+
+POSTGRES_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
+    "ALTER TABLE IF EXISTS students ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE IF EXISTS rounds ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'open'",
+    "ALTER TABLE IF EXISTS matches ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE IF EXISTS matches ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()",
+    "ALTER TABLE IF EXISTS attendance ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'present'",
+    "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS white_correct INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS white_incorrect INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS black_correct INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS black_incorrect INTEGER NOT NULL DEFAULT 0",
+)
 
 
 def redacted_database_url(url: str | None = None) -> str:
@@ -169,6 +182,20 @@ def verify_schema_compatibility(fail_fast: bool = False) -> list[str]:
             f"Apply migrations before starting the app. Issues: {joined}"
         )
     return issues
+
+
+def apply_postgres_schema_compatibility_patch() -> bool:
+    """Apply idempotent schema compatibility updates for Postgres deployments.
+
+    Returns True when running on Postgres and the patch statements were executed.
+    """
+    if engine.dialect.name != "postgresql":
+        return False
+
+    with engine.begin() as connection:
+        for statement in POSTGRES_COMPATIBILITY_PATCH_STATEMENTS:
+            connection.execute(text(statement))
+    return True
 
 
 @contextmanager

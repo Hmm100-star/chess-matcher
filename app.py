@@ -31,6 +31,7 @@ from werkzeug.utils import secure_filename
 from db import (
     Base,
     IS_PRODUCTION,
+    apply_postgres_schema_compatibility_patch,
     database_url_warnings,
     engine,
     redacted_database_url,
@@ -76,12 +77,30 @@ def initialize_database() -> None:
             extra={"database_url": redacted_database_url()},
         )
         Base.metadata.create_all(bind=engine)
-        schema_issues = verify_schema_compatibility(fail_fast=IS_PRODUCTION)
+        schema_issues = verify_schema_compatibility(fail_fast=False)
+        if schema_issues and IS_PRODUCTION:
+            patched = apply_postgres_schema_compatibility_patch()
+            if patched:
+                logger.warning(
+                    "Applied Postgres schema compatibility patch",
+                    extra={
+                        "database_url": redacted_database_url(),
+                        "issues_before_patch": schema_issues,
+                    },
+                )
+                schema_issues = verify_schema_compatibility(fail_fast=False)
+
         if schema_issues:
             logger.warning(
                 "Database schema compatibility issues detected",
                 extra={"database_url": redacted_database_url(), "issues": schema_issues},
             )
+            if IS_PRODUCTION:
+                joined = "; ".join(schema_issues)
+                raise RuntimeError(
+                    "Database schema is incompatible with the current app models. "
+                    f"Apply migrations before starting the app. Issues: {joined}"
+                )
         else:
             logger.info("Database schema compatibility check passed")
         _tables_initialized = True
