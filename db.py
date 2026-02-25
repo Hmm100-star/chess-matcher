@@ -61,6 +61,11 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "win_weight",
         "homework_weight",
         "status",
+        "homework_total_questions",
+        "missing_homework_policy",
+        "missing_homework_penalty",
+        "homework_metric_mode",
+        "completion_override_reason",
     },
     "attendance": {"id", "round_id", "student_id", "status"},
     "matches": {
@@ -72,6 +77,8 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "black_strength",
         "result",
         "notes",
+        "notation_submitted_white",
+        "notation_submitted_black",
         "updated_at",
     },
     "homework_entries": {
@@ -81,6 +88,20 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "white_incorrect",
         "black_correct",
         "black_incorrect",
+        "white_submitted",
+        "black_submitted",
+        "white_pct_wrong",
+        "black_pct_wrong",
+    },
+    "audit_logs": {
+        "id",
+        "teacher_id",
+        "classroom_id",
+        "round_id",
+        "match_id",
+        "action",
+        "payload",
+        "created_at",
     },
 }
 

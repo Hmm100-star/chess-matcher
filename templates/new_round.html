@@ -4,7 +4,7 @@
   <div class="mx-auto max-w-4xl rounded-3xl bg-white/90 p-8 shadow-2xl dark:bg-gray-800/90">
     <h1 class="text-2xl font-semibold">Create a new round</h1>
     <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
-      Select any absences, set weighting, and generate pairings for {{ classroom.name }}.
+      Set pairing/fairness rules, attendance, and homework policy for {{ classroom.name }}.
     </p>
 
     <form class="mt-6 space-y-6" method="post">
@@ -35,16 +35,70 @@
             class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
           />
         </div>
+        <div>
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_metric_mode">Homework metric mode</label>
+          <select
+            id="homework_metric_mode"
+            name="homework_metric_mode"
+            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          >
+            <option value="pct_wrong" {% if default_homework_metric_mode == 'pct_wrong' %}selected{% endif %}>Percent wrong (recommended)</option>
+            <option value="pct_correct" {% if default_homework_metric_mode == 'pct_correct' %}selected{% endif %}>Percent correct</option>
+            <option value="raw_counts" {% if default_homework_metric_mode == 'raw_counts' %}selected{% endif %}>Raw counts</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_total_questions">Homework total questions</label>
+          <input
+            id="homework_total_questions"
+            name="homework_total_questions"
+            type="number"
+            min="0"
+            value="{{ default_homework_total_questions }}"
+            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          />
+        </div>
+        <div>
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="missing_homework_policy">Missing homework policy</label>
+          <select
+            id="missing_homework_policy"
+            name="missing_homework_policy"
+            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          >
+            <option value="zero" {% if default_missing_homework_policy == 'zero' %}selected{% endif %}>Count as 0%</option>
+            <option value="exclude" {% if default_missing_homework_policy == 'exclude' %}selected{% endif %}>Exclude from stats</option>
+            <option value="penalty" {% if default_missing_homework_policy == 'penalty' %}selected{% endif %}>Missing penalty</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="missing_homework_penalty">Missing penalty value</label>
+          <input
+            id="missing_homework_penalty"
+            name="missing_homework_penalty"
+            type="number"
+            min="0"
+            value="{{ default_missing_homework_penalty }}"
+            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          />
+        </div>
       </div>
 
       <div>
-        <h2 class="text-lg font-semibold">Mark absences</h2>
-        <p class="text-xs text-gray-500 dark:text-gray-400">Absent students are skipped entirely. If an odd number remains, the lowest-rated student receives a bye.</p>
+        <h2 class="text-lg font-semibold">Attendance status</h2>
+        <p class="text-xs text-gray-500 dark:text-gray-400">Absent or excused students are skipped from pairings. If an odd number remains, the lowest-rated student receives a bye.</p>
         <div class="mt-3 grid gap-2 sm:grid-cols-2">
           {% for student in students %}
             <label class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900/60">
-              <input type="checkbox" name="absent_students" value="{{ student.id }}" />
-              <span>{{ student.name }}</span>
+              <span class="w-1/2">{{ student.name }}</span>
+              <select
+                name="attendance_status_{{ student.id }}"
+                class="w-1/2 rounded-xl border border-gray-300 bg-white px-3 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+              >
+                <option value="present">Present</option>
+                <option value="late">Late</option>
+                <option value="absent">Absent</option>
+                <option value="excused">Excused</option>
+              </select>
             </label>
           {% else %}
             <p class="text-sm text-gray-500">No active students yet.</p>

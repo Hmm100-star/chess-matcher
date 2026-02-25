@@ -1,0 +1,37 @@
+-- Feature backlog patch: homework policy, notation tracking, audit logs, attendance states
+
+ALTER TABLE IF EXISTS rounds
+  ADD COLUMN IF NOT EXISTS homework_total_questions INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS rounds
+  ADD COLUMN IF NOT EXISTS missing_homework_policy VARCHAR(20) NOT NULL DEFAULT 'zero';
+ALTER TABLE IF EXISTS rounds
+  ADD COLUMN IF NOT EXISTS missing_homework_penalty INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE IF EXISTS rounds
+  ADD COLUMN IF NOT EXISTS homework_metric_mode VARCHAR(20) NOT NULL DEFAULT 'pct_wrong';
+ALTER TABLE IF EXISTS rounds
+  ADD COLUMN IF NOT EXISTS completion_override_reason TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE IF EXISTS matches
+  ADD COLUMN IF NOT EXISTS notation_submitted_white BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE IF EXISTS matches
+  ADD COLUMN IF NOT EXISTS notation_submitted_black BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE IF EXISTS homework_entries
+  ADD COLUMN IF NOT EXISTS white_submitted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE IF EXISTS homework_entries
+  ADD COLUMN IF NOT EXISTS black_submitted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE IF EXISTS homework_entries
+  ADD COLUMN IF NOT EXISTS white_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS homework_entries
+  ADD COLUMN IF NOT EXISTS black_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id SERIAL PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES teachers(id),
+  classroom_id INTEGER NOT NULL REFERENCES classrooms(id),
+  round_id INTEGER REFERENCES rounds(id),
+  match_id INTEGER REFERENCES matches(id),
+  action VARCHAR(80) NOT NULL,
+  payload TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);

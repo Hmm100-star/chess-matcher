@@ -86,6 +86,20 @@ class RoundGenerationFlowTests(unittest.TestCase):
                 follow_redirects=False,
             )
 
+    def _create_round(self, classroom_id: int) -> int:
+        new_round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/new")
+        csrf = self._extract_csrf(new_round_page.get_data(as_text=True))
+        response = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/new",
+            data={"csrf_token": csrf, "win_weight": "0.7", "homework_weight": "0.3"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        location = response.headers.get("Location", "")
+        match = re.search(r"/rounds/(\d+)", location)
+        self.assertIsNotNone(match)
+        return int(match.group(1))
+
     def test_generate_matches_redirects_to_round_results_without_500(self) -> None:
         self._bootstrap_teacher_and_login()
         classroom_id = self._create_classroom()
@@ -163,6 +177,108 @@ class RoundGenerationFlowTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("results", body)
         self.assertNotIn("We hit an unexpected error", body)
+
+    def test_round_export_includes_homework_and_notation(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Class Export")
+        self._add_students(classroom_id, ["A", "B", "C", "D"])
+        round_id = self._create_round(classroom_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+        body = round_page.get_data(as_text=True)
+        match_ids = re.findall(r'data-match-id="(\d+)"', body)
+        self.assertTrue(match_ids)
+        first = match_ids[0]
+
+        submit_data = {
+            "csrf_token": csrf,
+            "action": "save",
+            f"result_{first}": "white",
+            f"white_submitted_{first}": "1",
+            f"black_submitted_{first}": "1",
+            f"white_correct_{first}": "8",
+            f"black_correct_{first}": "6",
+            f"notation_white_{first}": "1",
+            f"notation_black_{first}": "1",
+            f"notes_{first}": "Test note",
+        }
+        self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}",
+            data=submit_data,
+            follow_redirects=True,
+        )
+
+        export_response = self.client.get(
+            f"/classrooms/{classroom_id}/rounds/{round_id}/export",
+            follow_redirects=False,
+        )
+        self.assertEqual(export_response.status_code, 200)
+        csv_text = export_response.get_data(as_text=True)
+        self.assertIn("White Notation Submitted", csv_text)
+        self.assertIn("Test note", csv_text)
+
+    def test_round_autosave_persists_notes(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Class Autosave")
+        self._add_students(classroom_id, ["A", "B", "C", "D"])
+        round_id = self._create_round(classroom_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+        body = round_page.get_data(as_text=True)
+        match_ids = re.findall(r'data-match-id="(\d+)"', body)
+        self.assertTrue(match_ids)
+        first = match_ids[0]
+
+        autosave_response = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}/autosave",
+            data={
+                "csrf_token": csrf,
+                "match_id": first,
+                f"result_{first}": "tie",
+                f"white_submitted_{first}": "1",
+                f"black_submitted_{first}": "1",
+                f"white_correct_{first}": "7",
+                f"black_correct_{first}": "5",
+                f"notes_{first}": "Autosaved note",
+                f"notation_white_{first}": "1",
+                f"notation_black_{first}": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(autosave_response.status_code, 200)
+
+        refreshed = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        self.assertIn("Autosaved note", refreshed.get_data(as_text=True))
+
+    def test_students_export_import_roundtrip(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_a = self._create_classroom("Export Source")
+        self._add_students(classroom_a, ["A", "B"])
+
+        export_response = self.client.get(f"/classrooms/{classroom_a}/export/students")
+        self.assertEqual(export_response.status_code, 200)
+        exported = export_response.data
+
+        classroom_b = self._create_classroom("Import Dest")
+        import_page = self.client.get(f"/classrooms/{classroom_b}/import")
+        csrf = self._extract_csrf(import_page.get_data(as_text=True))
+        import_response = self.client.post(
+            f"/classrooms/{classroom_b}/import",
+            data={
+                "csrf_token": csrf,
+                "replace_existing": "on",
+                "file": (io.BytesIO(exported), "students_roundtrip.csv"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(import_response.status_code, 302)
+        classroom_page = self.client.get(f"/classrooms/{classroom_b}")
+        page = classroom_page.get_data(as_text=True)
+        self.assertIn("A", page)
+        self.assertIn("B", page)
 
 
 

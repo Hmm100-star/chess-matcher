@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Exceptions Queue · {{ classroom.name }}{% endblock %}
+{% block content %}
+  <div class="mx-auto max-w-4xl rounded-3xl bg-white/90 p-8 shadow-2xl dark:bg-gray-800/90">
+    <div class="mb-4 flex items-center justify-between">
+      <h1 class="text-2xl font-semibold">Exceptions queue</h1>
+      <a href="{{ url_for('classroom_overview', classroom_id=classroom.id) }}" class="text-sm text-indigo-600 hover:underline">Back to classroom</a>
+    </div>
+
+    {% if not active_round %}
+      <p class="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-300">No open round for this classroom.</p>
+    {% else %}
+      <p class="mb-4 text-sm text-gray-600 dark:text-gray-300">Active round: <span class="font-semibold">{{ active_round.id }}</span></p>
+      <div class="space-y-2">
+        {% for item in exceptions %}
+          <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-100">
+            <span class="font-semibold">{{ item.type }}</span>: {{ item.detail }}
+          </div>
+        {% else %}
+          <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-100">
+            No exceptions detected.
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

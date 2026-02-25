@@ -12,6 +12,10 @@
         class="rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-500"
       >New round</a>
       <a
+        href="{{ url_for('classroom_exceptions', classroom_id=classroom.id) }}"
+        class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-amber-400 hover:text-amber-700 dark:border-gray-700 dark:text-gray-200"
+      >Exceptions</a>
+      <a
         href="{{ url_for('import_students', classroom_id=classroom.id) }}"
         class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-indigo-400 hover:text-indigo-600 dark:border-gray-700 dark:text-gray-200"
       >Import CSV</a>
@@ -47,6 +51,7 @@
               <th class="py-2">W/L/T</th>
               <th class="py-2">White/Black</th>
               <th class="py-2">Homework</th>
+              <th class="py-2">Attendance</th>
               <th class="py-2">Active</th>
               <th class="py-2">Notes</th>
               <th class="py-2"></th>
@@ -59,6 +64,14 @@
                 <td class="py-3">{{ student.total_wins }}/{{ student.total_losses }}/{{ student.total_ties }}</td>
                 <td class="py-3">{{ student.times_white }}/{{ student.times_black }}</td>
                 <td class="py-3">{{ student.homework_correct }}/{{ student.homework_incorrect }}</td>
+                {% set attendance = attendance_by_student.get(student.id) %}
+                <td class="py-3 text-xs">
+                  <div>A: {{ attendance.absent if attendance else 0 }}</div>
+                  <div>E: {{ attendance.excused if attendance else 0 }}</div>
+                  <div>L: {{ attendance.late if attendance else 0 }}</div>
+                  <div>Abs%: {{ attendance.absence_rate if attendance else 0 }}%</div>
+                  <div>P streak: {{ attendance.present_streak if attendance else 0 }}</div>
+                </td>
                 <td class="py-3">{{ 'Yes' if student.active else 'No' }}</td>
                 <td class="py-3 text-xs text-gray-500">{{ student.notes or '—' }}</td>
                 <td class="py-3">
@@ -89,7 +102,7 @@
               </tr>
             {% else %}
               <tr>
-                <td colspan="7" class="py-4 text-center text-sm text-gray-500">No students yet.</td>
+                <td colspan="8" class="py-4 text-center text-sm text-gray-500">No students yet.</td>
               </tr>
             {% endfor %}
           </tbody>

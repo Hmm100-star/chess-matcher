@@ -7,7 +7,7 @@ from typing import Iterable, List, Optional, Tuple
 import pandas as pd
 
 from pairing_logic import normalize_weights, select_pairings
-from models import HomeworkEntry, Match, Student
+from models import HomeworkEntry, Match, Round, Student
 
 
 @dataclass
@@ -19,14 +19,23 @@ class RatingRow:
 
 
 def build_rating_dataframe(
-    students: Iterable[Student], win_weight: float, homework_weight: float
+    students: Iterable[Student],
+    win_weight: float,
+    homework_weight: float,
+    homework_metric_mode: str = "pct_wrong",
 ) -> Tuple[pd.DataFrame, List[int]]:
+    students = list(students)
     rows: List[RatingRow] = []
 
     def safe_int(value: Optional[int]) -> int:
         if value is None:
             return 0
         return int(value)
+
+    max_homework_correct = max(
+        (safe_int(student.homework_correct) for student in students),
+        default=0,
+    )
 
     for student in students:
         total_wins = safe_int(student.total_wins)
@@ -38,6 +47,14 @@ def build_rating_dataframe(
         homework_incorrect = safe_int(student.homework_incorrect)
         total_homework = homework_correct + homework_incorrect
         homework_score = homework_correct / total_homework if total_homework else 0
+        if homework_metric_mode == "raw_counts":
+            homework_score = (
+                homework_correct / max_homework_correct if max_homework_correct else 0
+            )
+        elif homework_metric_mode == "pct_correct":
+            homework_score = homework_correct / total_homework if total_homework else 0
+        elif homework_metric_mode == "pct_wrong":
+            homework_score = 1 - (homework_incorrect / total_homework) if total_homework else 0
         rating = round((win_weight * win_rate) + (homework_weight * homework_score), 3)
         color_diff = safe_int(student.times_white) - safe_int(student.times_black)
         rows.append(
@@ -68,10 +85,18 @@ def build_rating_dataframe(
 
 
 def generate_matches_for_students(
-    students: Iterable[Student], win_weight: float, homework_weight: float
+    students: Iterable[Student],
+    win_weight: float,
+    homework_weight: float,
+    homework_metric_mode: str = "pct_wrong",
 ) -> Tuple[List[Tuple[int, int]], List[int], pd.DataFrame, List[int]]:
     normalized_win, normalized_homework = normalize_weights(win_weight, homework_weight)
-    df, id_order = build_rating_dataframe(students, normalized_win, normalized_homework)
+    df, id_order = build_rating_dataframe(
+        students,
+        normalized_win,
+        normalized_homework,
+        homework_metric_mode=homework_metric_mode,
+    )
     matches, unpaired = select_pairings(df, rng=_random())
     return matches, unpaired, df, id_order
 
@@ -140,6 +165,7 @@ def recalculate_totals(students: Iterable[Student], matches: Iterable[Match]) ->
         black_id = match.black_student_id
         result = (match.result or "").lower()
         homework: Optional[HomeworkEntry] = match.homework_entry
+        round_record: Optional[Round] = match.round
 
         if white_id and white_id in student_map:
             student_map[white_id].times_white += 1
@@ -157,9 +183,40 @@ def recalculate_totals(students: Iterable[Student], matches: Iterable[Match]) ->
             student_map[black_id].total_ties += 1
 
         if homework:
-            if white_id and white_id in student_map:
-                student_map[white_id].homework_correct += homework.white_correct
-                student_map[white_id].homework_incorrect += homework.white_incorrect
-            if black_id and black_id in student_map:
-                student_map[black_id].homework_correct += homework.black_correct
-                student_map[black_id].homework_incorrect += homework.black_incorrect
+            total_questions = round_record.homework_total_questions if round_record else 0
+            missing_policy = round_record.missing_homework_policy if round_record else "zero"
+            missing_penalty = round_record.missing_homework_penalty if round_record else 1
+
+            def apply_homework(
+                student_id: Optional[int],
+                correct: int,
+                incorrect: int,
+                submitted: bool,
+            ) -> None:
+                if not student_id or student_id not in student_map:
+                    return
+                if submitted:
+                    student_map[student_id].homework_correct += int(correct)
+                    student_map[student_id].homework_incorrect += int(incorrect)
+                    return
+                if total_questions <= 0:
+                    return
+                if missing_policy == "exclude":
+                    return
+                if missing_policy == "penalty":
+                    student_map[student_id].homework_incorrect += max(1, int(missing_penalty))
+                else:
+                    student_map[student_id].homework_incorrect += int(total_questions)
+
+            apply_homework(
+                white_id,
+                homework.white_correct,
+                homework.white_incorrect,
+                homework.white_submitted,
+            )
+            apply_homework(
+                black_id,
+                homework.black_correct,
+                homework.black_incorrect,
+                homework.black_submitted,
+            )
