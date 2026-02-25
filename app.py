@@ -52,9 +52,11 @@ from models import (
 from pairing_logic import normalize_weights
 from services import (
     apply_homework_policy,
+    canonicalize_homework_metric_mode,
     create_match_records,
     generate_matches_for_students,
     recalculate_totals,
+    VALID_HOMEWORK_METRIC_MODES,
 )
 
 
@@ -620,7 +622,9 @@ def new_round(classroom_id: int) -> str:
             homework_weight_raw = request.form.get("homework_weight", "").strip()
             homework_total_raw = request.form.get("homework_total_questions", "").strip()
             missing_homework_policy = request.form.get("missing_homework_policy", "zero").strip()
-            homework_metric_mode = request.form.get("homework_metric_mode", "pct_wrong").strip()
+            homework_metric_mode = request.form.get(
+                "homework_metric_mode", "pct_correct"
+            ).strip()
 
             try:
                 win_weight = float(win_weight_raw) if win_weight_raw else DEFAULT_WIN_WEIGHT
@@ -637,8 +641,9 @@ def new_round(classroom_id: int) -> str:
             else:
                 if missing_homework_policy not in {"zero", "exclude", "penalty"}:
                     missing_homework_policy = "zero"
-                if homework_metric_mode not in {"raw_counts", "pct_wrong", "pct_correct"}:
-                    homework_metric_mode = "pct_wrong"
+                if homework_metric_mode not in VALID_HOMEWORK_METRIC_MODES:
+                    homework_metric_mode = "pct_correct"
+                homework_metric_mode = canonicalize_homework_metric_mode(homework_metric_mode)
 
                 attendance_by_student: dict[int, str] = {}
                 for student in students:
@@ -744,7 +749,7 @@ def new_round(classroom_id: int) -> str:
         default_homework_weight=DEFAULT_HOMEWORK_WEIGHT,
         default_homework_total_questions=10,
         default_missing_homework_policy="zero",
-        default_homework_metric_mode="pct_wrong",
+        default_homework_metric_mode="pct_correct",
     )
 
 
@@ -799,8 +804,9 @@ def round_results(classroom_id: int, round_id: int) -> str:
                 ).strip()
                 if missing_policy not in {"zero", "exclude", "penalty"}:
                     missing_policy = "zero"
-                if metric_mode not in {"raw_counts", "pct_wrong", "pct_correct"}:
-                    metric_mode = "pct_wrong"
+                if metric_mode not in VALID_HOMEWORK_METRIC_MODES:
+                    metric_mode = "pct_correct"
+                metric_mode = canonicalize_homework_metric_mode(metric_mode)
 
                 round_record.homework_total_questions = total_questions
                 round_record.missing_homework_policy = missing_policy
@@ -1020,6 +1026,9 @@ def round_results(classroom_id: int, round_id: int) -> str:
         "round_results.html",
         classroom=classroom,
         round_record=round_record,
+        selected_homework_metric_mode=canonicalize_homework_metric_mode(
+            round_record.homework_metric_mode
+        ),
         matches=matches,
         student_map=student_map,
         attendance_by_student=attendance_by_student,
@@ -1112,9 +1121,9 @@ def autosave_round_field(classroom_id: int, round_id: int):
                     raise ValueError("Invalid missing homework policy.")
                 round_record.missing_homework_policy = value
             elif field in {"homework_metric_mode"}:
-                if value not in {"raw_counts", "pct_wrong", "pct_correct"}:
+                if value not in VALID_HOMEWORK_METRIC_MODES:
                     raise ValueError("Invalid homework metric mode.")
-                round_record.homework_metric_mode = value
+                round_record.homework_metric_mode = canonicalize_homework_metric_mode(value)
             elif field.startswith("attendance_status_"):
                 student_id = int(field.split("_")[-1])
                 attendance_record = (

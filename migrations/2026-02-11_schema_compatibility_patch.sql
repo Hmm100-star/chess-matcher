@@ -11,7 +11,7 @@ ALTER TABLE IF EXISTS rounds
 ALTER TABLE IF EXISTS rounds
   ADD COLUMN IF NOT EXISTS missing_homework_policy VARCHAR(20) NOT NULL DEFAULT 'zero';
 ALTER TABLE IF EXISTS rounds
-  ADD COLUMN IF NOT EXISTS homework_metric_mode VARCHAR(20) NOT NULL DEFAULT 'pct_wrong';
+  ADD COLUMN IF NOT EXISTS homework_metric_mode VARCHAR(20) NOT NULL DEFAULT 'pct_correct';
 ALTER TABLE IF EXISTS rounds
   ADD COLUMN IF NOT EXISTS completion_override_reason TEXT NOT NULL DEFAULT '';
 

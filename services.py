@@ -9,6 +9,17 @@ import pandas as pd
 from pairing_logic import normalize_weights, select_pairings
 from models import HomeworkEntry, Match, Student
 
+VALID_HOMEWORK_METRIC_MODES = {"pct_correct", "total_correct", "pct_wrong", "raw_counts"}
+
+
+def canonicalize_homework_metric_mode(metric_mode: Optional[str]) -> str:
+    normalized = (metric_mode or "").strip()
+    if normalized in {"pct_correct", "pct_wrong"}:
+        return "pct_correct"
+    if normalized in {"total_correct", "raw_counts"}:
+        return "total_correct"
+    return "pct_correct"
+
 
 @dataclass
 class RatingRow:
@@ -22,11 +33,12 @@ def build_rating_dataframe(
     students: Iterable[Student],
     win_weight: float,
     homework_weight: float,
-    homework_metric_mode: str = "pct_wrong",
+    homework_metric_mode: str = "pct_correct",
 ) -> Tuple[pd.DataFrame, List[int]]:
     rows: List[RatingRow] = []
     homework_components: List[float] = []
     student_cache: List[Student] = list(students)
+    metric_mode = canonicalize_homework_metric_mode(homework_metric_mode)
 
     def safe_int(value: Optional[int]) -> int:
         if value is None:
@@ -37,13 +49,10 @@ def build_rating_dataframe(
         homework_correct = safe_int(student.homework_correct)
         homework_incorrect = safe_int(student.homework_incorrect)
         total_homework = homework_correct + homework_incorrect
-        if homework_metric_mode == "raw_counts":
+        if metric_mode == "total_correct":
             homework_components.append(float(homework_correct))
-        elif homework_metric_mode == "pct_correct":
-            homework_components.append(homework_correct / total_homework if total_homework else 0)
         else:
-            pct_wrong = homework_incorrect / total_homework if total_homework else 0
-            homework_components.append(1 - pct_wrong)
+            homework_components.append(homework_correct / total_homework if total_homework else 0)
 
     max_raw_homework = max(homework_components) if homework_components else 1.0
     if max_raw_homework <= 0:
@@ -56,7 +65,7 @@ def build_rating_dataframe(
         total_games = total_wins + total_losses + total_ties
         win_rate = total_wins / total_games if total_games else 0
         homework_score = homework_components[index]
-        if homework_metric_mode == "raw_counts":
+        if metric_mode == "total_correct":
             homework_score = homework_score / max_raw_homework
         rating = round((win_weight * win_rate) + (homework_weight * homework_score), 3)
         color_diff = safe_int(student.times_white) - safe_int(student.times_black)
@@ -91,7 +100,7 @@ def generate_matches_for_students(
     students: Iterable[Student],
     win_weight: float,
     homework_weight: float,
-    homework_metric_mode: str = "pct_wrong",
+    homework_metric_mode: str = "pct_correct",
 ) -> Tuple[List[Tuple[int, int]], List[int], pd.DataFrame, List[int]]:
     normalized_win, normalized_homework = normalize_weights(win_weight, homework_weight)
     df, id_order = build_rating_dataframe(

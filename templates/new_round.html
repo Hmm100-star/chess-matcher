@@ -68,9 +68,8 @@
             name="homework_metric_mode"
             class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
           >
-            <option value="pct_wrong" {% if default_homework_metric_mode == 'pct_wrong' %}selected{% endif %}>Percentage wrong</option>
-            <option value="pct_correct" {% if default_homework_metric_mode == 'pct_correct' %}selected{% endif %}>Percentage correct</option>
-            <option value="raw_counts" {% if default_homework_metric_mode == 'raw_counts' %}selected{% endif %}>Raw correct count</option>
+            <option value="pct_correct" {% if default_homework_metric_mode == 'pct_correct' %}selected{% endif %}>Percentage Correct</option>
+            <option value="total_correct" {% if default_homework_metric_mode == 'total_correct' %}selected{% endif %}>Total Correct</option>
           </select>
         </div>
       </div>
