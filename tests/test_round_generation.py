@@ -355,6 +355,69 @@ class RoundGenerationFlowTests(unittest.TestCase):
         self.assertEqual(complete_with_override.status_code, 200)
         self.assertIn("Round status: <span class=\"font-semibold\">completed</span>", complete_with_override.get_data(as_text=True))
 
+    def test_complete_round_handles_missing_policy_fields_without_500(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Null-safe Complete")
+        self._add_students(classroom_id, ["A", "B"])
+        round_id = self._create_round_and_get_id(classroom_id)
+        match_id = self._first_match_id(round_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+        response = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}",
+            data={
+                "csrf_token": csrf,
+                "action": "complete_round",
+                "homework_total_questions": "10",
+                f"result_{match_id}": "white",
+            },
+            follow_redirects=True,
+        )
+
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("We hit an unexpected error", body)
+
+    def test_round_results_handles_sqlalchemy_error_without_500(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Recoverable DB Error")
+        self._add_students(classroom_id, ["A", "B"])
+        round_id = self._create_round_and_get_id(classroom_id)
+        match_id = self._first_match_id(round_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+
+        with patch("app.recalculate_totals", side_effect=self.app_module.SQLAlchemyError("forced")):
+            response = self.client.post(
+                f"/classrooms/{classroom_id}/rounds/{round_id}",
+                data={
+                    "csrf_token": csrf,
+                    "action": "save",
+                    "homework_total_questions": "10",
+                    "missing_homework_policy": "zero",
+                    "homework_metric_mode": "pct_correct",
+                    f"result_{match_id}": "white",
+                },
+                follow_redirects=True,
+            )
+
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("We couldn't save round changes due to a temporary data issue. Please retry.", body)
+        self.assertNotIn("We hit an unexpected error", body)
+
+    def test_health_db_includes_schema_compatibility_fields(self) -> None:
+        self._bootstrap_teacher_and_login()
+        response = self.client.get("/health/db")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIn("schema_compatibility", payload)
+        self.assertIn("schema_issues", payload)
+        self.assertIsInstance(payload["schema_issues"], list)
+        self.assertIn(payload["schema_compatibility"], {"ok", "issues"})
+
     def test_student_export_import_roundtrip_contract(self) -> None:
         self._bootstrap_teacher_and_login()
         classroom_id = self._create_classroom("Roundtrip")

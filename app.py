@@ -242,6 +242,10 @@ def parse_non_negative_int(value: str, field_name: str) -> int:
     return parsed
 
 
+def safe_strip(value: object, default: str = "") -> str:
+    return str(value if value is not None else default).strip()
+
+
 def validate_round_completion(
     matches: list[Match], round_record: Round, attendance_records: list[Attendance]
 ) -> list[str]:
@@ -458,12 +462,15 @@ def handle_unexpected_error(error: Exception):
 @app.route("/health/db")
 def health_db():
     try:
+        schema_issues = verify_schema_compatibility(fail_fast=False)
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         return {
             "status": "ok",
             "database_url": redacted_database_url(),
             "warnings": database_url_warnings(),
+            "schema_compatibility": "issues" if schema_issues else "ok",
+            "schema_issues": schema_issues,
         }
     except Exception as error:
         logger.exception(
@@ -474,6 +481,8 @@ def health_db():
             "status": "error",
             "database_url": redacted_database_url(),
             "warnings": database_url_warnings(),
+            "schema_compatibility": "issues",
+            "schema_issues": [],
             "error_type": type(error).__name__,
             "error": str(error),
         }, 500
@@ -788,20 +797,28 @@ def round_results(classroom_id: int, round_id: int) -> str:
 
         if request.method == "POST":
             require_csrf()
-            action = request.form.get("action", "save").strip()
-            override_reason = request.form.get("override_reason", "").strip()
+            action = safe_strip(request.form.get("action", "save"), "save") or "save"
+            override_reason = safe_strip(request.form.get("override_reason", ""), "")
 
             try:
                 total_questions = parse_non_negative_int(
                     request.form.get("homework_total_questions", str(round_record.homework_total_questions)),
                     "Homework total questions",
                 )
-                missing_policy = request.form.get(
-                    "missing_homework_policy", round_record.missing_homework_policy
-                ).strip()
-                metric_mode = request.form.get(
-                    "homework_metric_mode", round_record.homework_metric_mode
-                ).strip()
+                missing_policy = safe_strip(
+                    request.form.get(
+                        "missing_homework_policy",
+                        round_record.missing_homework_policy or "zero",
+                    ),
+                    "zero",
+                )
+                metric_mode = safe_strip(
+                    request.form.get(
+                        "homework_metric_mode",
+                        round_record.homework_metric_mode or "pct_correct",
+                    ),
+                    "pct_correct",
+                )
                 if missing_policy not in {"zero", "exclude", "penalty"}:
                     missing_policy = "zero"
                 if metric_mode not in VALID_HOMEWORK_METRIC_MODES:
@@ -817,9 +834,13 @@ def round_results(classroom_id: int, round_id: int) -> str:
                         record.status = "absent"
                 else:
                     for record in attendance_records:
-                        status = request.form.get(
-                            f"attendance_status_{record.student_id}", record.status
-                        ).strip()
+                        status = safe_strip(
+                            request.form.get(
+                                f"attendance_status_{record.student_id}",
+                                record.status or "present",
+                            ),
+                            "present",
+                        )
                         if status not in {"present", "absent", "excused", "late"}:
                             status = "present"
                         record.status = status
@@ -957,6 +978,19 @@ def round_results(classroom_id: int, round_id: int) -> str:
             except ValueError as exc:
                 db.rollback()
                 error = str(exc)
+            except (SQLAlchemyError, TypeError, AttributeError) as exc:
+                db.rollback()
+                logger.exception(
+                    "Round results POST failed with recoverable error",
+                    extra={
+                        "classroom_id": classroom_id,
+                        "round_id": round_id,
+                        "teacher_id": teacher.id,
+                        "action": action,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                error = "We couldn't save round changes due to a temporary data issue. Please retry."
 
         opponent_counts: dict[tuple[int, int], int] = {}
         historical_matches = (
