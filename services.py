@@ -19,25 +19,45 @@ class RatingRow:
 
 
 def build_rating_dataframe(
-    students: Iterable[Student], win_weight: float, homework_weight: float
+    students: Iterable[Student],
+    win_weight: float,
+    homework_weight: float,
+    homework_metric_mode: str = "pct_wrong",
 ) -> Tuple[pd.DataFrame, List[int]]:
     rows: List[RatingRow] = []
+    homework_components: List[float] = []
+    student_cache: List[Student] = list(students)
 
     def safe_int(value: Optional[int]) -> int:
         if value is None:
             return 0
         return int(value)
 
-    for student in students:
+    for student in student_cache:
+        homework_correct = safe_int(student.homework_correct)
+        homework_incorrect = safe_int(student.homework_incorrect)
+        total_homework = homework_correct + homework_incorrect
+        if homework_metric_mode == "raw_counts":
+            homework_components.append(float(homework_correct))
+        elif homework_metric_mode == "pct_correct":
+            homework_components.append(homework_correct / total_homework if total_homework else 0)
+        else:
+            pct_wrong = homework_incorrect / total_homework if total_homework else 0
+            homework_components.append(1 - pct_wrong)
+
+    max_raw_homework = max(homework_components) if homework_components else 1.0
+    if max_raw_homework <= 0:
+        max_raw_homework = 1.0
+
+    for index, student in enumerate(student_cache):
         total_wins = safe_int(student.total_wins)
         total_losses = safe_int(student.total_losses)
         total_ties = safe_int(student.total_ties)
         total_games = total_wins + total_losses + total_ties
         win_rate = total_wins / total_games if total_games else 0
-        homework_correct = safe_int(student.homework_correct)
-        homework_incorrect = safe_int(student.homework_incorrect)
-        total_homework = homework_correct + homework_incorrect
-        homework_score = homework_correct / total_homework if total_homework else 0
+        homework_score = homework_components[index]
+        if homework_metric_mode == "raw_counts":
+            homework_score = homework_score / max_raw_homework
         rating = round((win_weight * win_rate) + (homework_weight * homework_score), 3)
         color_diff = safe_int(student.times_white) - safe_int(student.times_black)
         rows.append(
@@ -68,10 +88,15 @@ def build_rating_dataframe(
 
 
 def generate_matches_for_students(
-    students: Iterable[Student], win_weight: float, homework_weight: float
+    students: Iterable[Student],
+    win_weight: float,
+    homework_weight: float,
+    homework_metric_mode: str = "pct_wrong",
 ) -> Tuple[List[Tuple[int, int]], List[int], pd.DataFrame, List[int]]:
     normalized_win, normalized_homework = normalize_weights(win_weight, homework_weight)
-    df, id_order = build_rating_dataframe(students, normalized_win, normalized_homework)
+    df, id_order = build_rating_dataframe(
+        students, normalized_win, normalized_homework, homework_metric_mode
+    )
     matches, unpaired = select_pairings(df, rng=_random())
     return matches, unpaired, df, id_order
 
@@ -158,8 +183,37 @@ def recalculate_totals(students: Iterable[Student], matches: Iterable[Match]) ->
 
         if homework:
             if white_id and white_id in student_map:
-                student_map[white_id].homework_correct += homework.white_correct
-                student_map[white_id].homework_incorrect += homework.white_incorrect
+                student_map[white_id].homework_correct += int(homework.white_correct or 0)
+                student_map[white_id].homework_incorrect += int(homework.white_incorrect or 0)
             if black_id and black_id in student_map:
-                student_map[black_id].homework_correct += homework.black_correct
-                student_map[black_id].homework_incorrect += homework.black_incorrect
+                student_map[black_id].homework_correct += int(homework.black_correct or 0)
+                student_map[black_id].homework_incorrect += int(homework.black_incorrect or 0)
+
+
+def apply_homework_policy(
+    entered_correct: Optional[str],
+    total_questions: int,
+    missing_policy: str,
+) -> tuple[int, int, bool, float]:
+    """Compute correct/incorrect/submitted/pct_wrong from round policy."""
+    entered_value = (entered_correct or "").strip()
+    if not entered_value:
+        if missing_policy == "exclude":
+            return 0, 0, False, 0.0
+        if missing_policy == "penalty":
+            wrong = max(total_questions, 0)
+            return 0, wrong, False, 1.0 if wrong else 0.0
+        wrong = max(total_questions, 0)
+        return 0, wrong, False, 1.0 if wrong else 0.0
+
+    parsed_correct = int(float(entered_value))
+    if parsed_correct < 0:
+        raise ValueError("Homework correct count cannot be negative.")
+    if total_questions > 0 and parsed_correct > total_questions:
+        raise ValueError("Homework correct count cannot exceed total questions.")
+    if total_questions <= 0:
+        wrong = 0
+    else:
+        wrong = max(total_questions - parsed_correct, 0)
+    pct_wrong = (wrong / total_questions) if total_questions > 0 else 0.0
+    return parsed_correct, wrong, True, pct_wrong

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Exceptions Queue · {{ classroom.name }}{% endblock %}
+{% block content %}
+  <div class="mb-6 flex items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold">Exceptions queue</h1>
+      <p class="text-sm text-gray-600 dark:text-gray-300">Missing items for the most recent round.</p>
+    </div>
+    <a href="{{ url_for('classroom_overview', classroom_id=classroom.id) }}" class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-200">Back to class</a>
+  </div>
+
+  {% if not round_record %}
+    <p class="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/60">No rounds yet.</p>
+  {% else %}
+    <div class="grid gap-4 md:grid-cols-2">
+      <section class="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+        <h2 class="text-sm font-semibold">Missing homework</h2>
+        <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+          {% for item in missing_homework %}
+            <li>{{ item }}</li>
+          {% else %}
+            <li>None</li>
+          {% endfor %}
+        </ul>
+      </section>
+      <section class="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+        <h2 class="text-sm font-semibold">Missing notation</h2>
+        <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+          {% for item in missing_notation %}
+            <li>{{ item }}</li>
+          {% else %}
+            <li>None</li>
+          {% endfor %}
+        </ul>
+      </section>
+      <section class="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+        <h2 class="text-sm font-semibold">Unresolved results</h2>
+        <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+          {% for match_id in unresolved_results %}
+            <li>Match {{ match_id }}</li>
+          {% else %}
+            <li>None</li>
+          {% endfor %}
+        </ul>
+      </section>
+      <section class="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+        <h2 class="text-sm font-semibold">Absent/excused</h2>
+        <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+          {% for student in absences %}
+            <li>{{ student }}</li>
+          {% else %}
+            <li>None</li>
+          {% endfor %}
+        </ul>
+      </section>
+    </div>
+  {% endif %}
+{% endblock %}

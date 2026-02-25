@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import csv
 import importlib
 import os
 import re
@@ -103,7 +104,7 @@ class RoundGenerationFlowTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("Round", body)
         self.assertIn("results", body)
-        self.assertIn("white_correct_", body)
+        self.assertIn("white_entered_correct_", body)
         self.assertNotIn("We hit an unexpected error", body)
 
     def test_odd_player_count_creates_bye_and_renders_round(self) -> None:
@@ -223,6 +224,159 @@ class RoundGenerationFlowTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Username is already taken.", response.get_data(as_text=True))
+
+    def _create_round_and_get_id(self, classroom_id: int) -> int:
+        new_round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/new")
+        csrf = self._extract_csrf(new_round_page.get_data(as_text=True))
+        response = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/new",
+            data={
+                "csrf_token": csrf,
+                "win_weight": "0.7",
+                "homework_weight": "0.3",
+                "homework_total_questions": "10",
+                "missing_homework_policy": "zero",
+                "homework_metric_mode": "pct_wrong",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        location = response.headers["Location"]
+        match = re.search(r"/rounds/(\d+)", location)
+        self.assertIsNotNone(match)
+        return int(match.group(1))
+
+    def _first_match_id(self, round_id: int) -> int:
+        with self.db.session_scope() as db_session:
+            match = (
+                db_session.query(self.app_module.Match)
+                .filter(self.app_module.Match.round_id == round_id)
+                .order_by(self.app_module.Match.id)
+                .first()
+            )
+        self.assertIsNotNone(match)
+        return int(match.id)
+
+    def test_export_round_includes_homework_notes_results_and_byes(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Round Export")
+        self._add_students(classroom_id, ["A", "B", "C"])
+        round_id = self._create_round_and_get_id(classroom_id)
+        match_id = self._first_match_id(round_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+        self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}",
+            data={
+                "csrf_token": csrf,
+                "action": "save",
+                "homework_total_questions": "10",
+                "missing_homework_policy": "zero",
+                "homework_metric_mode": "pct_wrong",
+                f"result_{match_id}": "white",
+                f"notes_{match_id}": "good game",
+                f"white_entered_correct_{match_id}": "8",
+                f"black_entered_correct_{match_id}": "7",
+            },
+            follow_redirects=False,
+        )
+
+        export_response = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}/export")
+        self.assertEqual(export_response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(export_response.get_data(as_text=True))))
+        self.assertTrue(rows)
+        self.assertIn("White Homework Submitted", rows[0].keys())
+        self.assertIn("White Notation Submitted", rows[0].keys())
+
+    def test_autosave_persists_round_edits(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Autosave")
+        self._add_students(classroom_id, ["A", "B"])
+        round_id = self._create_round_and_get_id(classroom_id)
+        match_id = self._first_match_id(round_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+
+        autosave_response = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}/autosave",
+            data={
+                "csrf_token": csrf,
+                "match_id": str(match_id),
+                "field": "notes",
+                "value": "autosaved note",
+            },
+        )
+        self.assertEqual(autosave_response.status_code, 200)
+        self.assertIn('"saved":true', autosave_response.get_data(as_text=True).replace(" ", ""))
+
+        refreshed = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        self.assertIn("autosaved note", refreshed.get_data(as_text=True))
+
+    def test_homework_policy_and_completion_guardrail(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Policy")
+        self._add_students(classroom_id, ["A", "B"])
+        round_id = self._create_round_and_get_id(classroom_id)
+        match_id = self._first_match_id(round_id)
+
+        round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
+        csrf = self._extract_csrf(round_page.get_data(as_text=True))
+        blocked_complete = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}",
+            data={
+                "csrf_token": csrf,
+                "action": "complete_round",
+                "homework_total_questions": "10",
+                "missing_homework_policy": "zero",
+                "homework_metric_mode": "pct_wrong",
+                f"white_entered_correct_{match_id}": "",
+                f"black_entered_correct_{match_id}": "",
+                f"result_{match_id}": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn("Round has unresolved data", blocked_complete.get_data(as_text=True))
+
+        complete_with_override = self.client.post(
+            f"/classrooms/{classroom_id}/rounds/{round_id}",
+            data={
+                "csrf_token": csrf,
+                "action": "complete_round",
+                "override_reason": "Teacher approved incomplete entries",
+                "homework_total_questions": "10",
+                "missing_homework_policy": "zero",
+                "homework_metric_mode": "pct_wrong",
+                f"result_{match_id}": "white",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(complete_with_override.status_code, 200)
+        self.assertIn("Round status: <span class=\"font-semibold\">completed</span>", complete_with_override.get_data(as_text=True))
+
+    def test_student_export_import_roundtrip_contract(self) -> None:
+        self._bootstrap_teacher_and_login()
+        classroom_id = self._create_classroom("Roundtrip")
+        self._add_students(classroom_id, ["A", "B", "C", "D"])
+
+        export_response = self.client.get(f"/classrooms/{classroom_id}/export/students")
+        self.assertEqual(export_response.status_code, 200)
+        exported_csv = export_response.get_data()
+
+        import_page = self.client.get(f"/classrooms/{classroom_id}/import")
+        csrf = self._extract_csrf(import_page.get_data(as_text=True))
+        import_response = self.client.post(
+            f"/classrooms/{classroom_id}/import",
+            data={
+                "csrf_token": csrf,
+                "replace_existing": "on",
+                "file": (io.BytesIO(exported_csv), "students_roundtrip.csv"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(import_response.status_code, 302)
 
 
 class SchemaVerificationTests(unittest.TestCase):

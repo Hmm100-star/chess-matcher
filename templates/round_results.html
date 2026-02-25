@@ -4,16 +4,99 @@
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-semibold">Round {{ round_record.id }} results</h1>
-      <p class="text-sm text-gray-600 dark:text-gray-300">Update winners, homework counts, and notes. Edits recompute totals automatically.</p>
+      <p class="text-sm text-gray-600 dark:text-gray-300">Autosave is enabled. Changes save 800ms after edits.</p>
     </div>
-    <a
-      href="{{ url_for('export_round', classroom_id=classroom.id, round_id=round_record.id) }}"
-      class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-400 hover:text-emerald-600 dark:border-gray-700 dark:text-gray-200"
-    >Export CSV</a>
+    <div class="flex flex-wrap gap-2">
+      <a
+        href="{{ url_for('exceptions_queue', classroom_id=classroom.id) }}"
+        class="rounded-2xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:border-amber-400 dark:border-amber-700 dark:text-amber-200"
+      >Exceptions queue</a>
+      <a
+        href="{{ url_for('export_round', classroom_id=classroom.id, round_id=round_record.id) }}"
+        class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-400 hover:text-emerald-600 dark:border-gray-700 dark:text-gray-200"
+      >Export CSV</a>
+    </div>
   </div>
 
-  <form method="post" class="space-y-6">
+  <div class="mb-4 rounded-2xl border border-gray-200 bg-white/80 p-4 text-sm dark:border-gray-700 dark:bg-gray-800/80">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <p>Round status: <span class="font-semibold">{{ round_record.status }}</span></p>
+      <p id="autosave-status" class="text-xs text-gray-500">All changes saved.</p>
+    </div>
+    <p class="mt-1 text-xs text-gray-500">Notation submitted: {{ notation_summary.submitted }}/{{ notation_summary.expected }}</p>
+  </div>
+
+  <form method="post" class="space-y-6" id="round-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <div class="grid gap-4 rounded-2xl border border-gray-200 bg-white/80 p-4 md:grid-cols-3 dark:border-gray-700 dark:bg-gray-800/80">
+      <div>
+        <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Homework total questions</label>
+        <input
+          name="homework_total_questions"
+          type="number"
+          min="0"
+          value="{{ round_record.homework_total_questions }}"
+          class="autosave-round mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          data-field="homework_total_questions"
+        />
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Missing homework policy</label>
+        <select
+          name="missing_homework_policy"
+          class="autosave-round mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          data-field="missing_homework_policy"
+        >
+          <option value="zero" {% if round_record.missing_homework_policy == 'zero' %}selected{% endif %}>Count as 0%</option>
+          <option value="exclude" {% if round_record.missing_homework_policy == 'exclude' %}selected{% endif %}>Exclude from denominator</option>
+          <option value="penalty" {% if round_record.missing_homework_policy == 'penalty' %}selected{% endif %}>Missing penalty</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Homework metric mode</label>
+        <select
+          name="homework_metric_mode"
+          class="autosave-round mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          data-field="homework_metric_mode"
+        >
+          <option value="pct_wrong" {% if round_record.homework_metric_mode == 'pct_wrong' %}selected{% endif %}>Percentage wrong</option>
+          <option value="pct_correct" {% if round_record.homework_metric_mode == 'pct_correct' %}selected{% endif %}>Percentage correct</option>
+          <option value="raw_counts" {% if round_record.homework_metric_mode == 'raw_counts' %}selected{% endif %}>Raw correct count</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+      <div class="mb-3 flex flex-wrap gap-2">
+        <button type="submit" name="action" value="bulk_set_unresolved_tie" class="rounded-xl bg-gray-800 px-3 py-2 text-xs font-semibold text-white">Set unresolved to tie</button>
+        <button type="submit" name="action" value="bulk_mark_all_absent" class="rounded-xl bg-rose-700 px-3 py-2 text-xs font-semibold text-white">Mark all absent</button>
+        <button type="submit" name="action" value="save" class="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Save all</button>
+      </div>
+      <div class="grid gap-2 sm:grid-cols-2">
+        {% for student_id, record in attendance_by_student.items() %}
+          {% set metric = attendance_metrics.get(student_id, {}) %}
+          {% set student = student_map.get(student_id) %}
+          <label class="flex items-center justify-between gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
+            <span>{{ student.name if student else 'Unknown' }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-500">A-rate {{ (metric.absence_rate * 100)|round(1) if metric else 0 }}%</span>
+              <select
+                name="attendance_status_{{ student_id }}"
+                class="autosave-attendance rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                data-field="attendance_status_{{ student_id }}"
+              >
+                <option value="present" {% if record.status == 'present' %}selected{% endif %}>Present</option>
+                <option value="late" {% if record.status == 'late' %}selected{% endif %}>Late</option>
+                <option value="absent" {% if record.status == 'absent' %}selected{% endif %}>Absent</option>
+                <option value="excused" {% if record.status == 'excused' %}selected{% endif %}>Excused</option>
+              </select>
+            </div>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
     <div class="space-y-4">
       {% for match in matches %}
         {% set white = student_map.get(match.white_student_id) %}
@@ -31,11 +114,11 @@
               </h2>
             </div>
             <div class="text-xs text-gray-500">
-              Last updated: {{ match.updated_at.strftime('%Y-%m-%d %H:%M') if match.updated_at else 'n/a' }}
+              Last updated: {{ match.updated_at.strftime('%Y-%m-%d %H:%M:%S') if match.updated_at else 'n/a' }}
             </div>
           </div>
 
-          <div class="mt-4 grid gap-4 md:grid-cols-3">
+          <div class="mt-4 grid gap-4 md:grid-cols-4">
             <div>
               <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Result</label>
               {% if black is none %}
@@ -43,7 +126,9 @@
               {% else %}
                 <select
                   name="result_{{ match.id }}"
-                  class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                  class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                  data-match-id="{{ match.id }}"
+                  data-field="result"
                 >
                   <option value="" {% if not match.result %}selected{% endif %}>Not recorded</option>
                   <option value="white" {% if match.result == 'white' %}selected{% endif %}>{{ white.name }} wins</option>
@@ -53,45 +138,63 @@
               {% endif %}
             </div>
             <div>
-              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">White homework</label>
-              <div class="mt-2 grid grid-cols-2 gap-2">
-                <input
-                  name="white_correct_{{ match.id }}"
-                  type="number"
-                  min="0"
-                  value="{{ match.homework_entry.white_correct if match.homework_entry else 0 }}"
-                  class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-                  placeholder="Correct"
-                />
-                <input
-                  name="white_incorrect_{{ match.id }}"
-                  type="number"
-                  min="0"
-                  value="{{ match.homework_entry.white_incorrect if match.homework_entry else 0 }}"
-                  class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-                  placeholder="Incorrect"
-                />
-              </div>
+              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">White correct</label>
+              <input
+                name="white_entered_correct_{{ match.id }}"
+                type="number"
+                min="0"
+                value="{{ match.homework_entry.white_correct if match.homework_entry and match.homework_entry.white_submitted else '' }}"
+                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                data-match-id="{{ match.id }}"
+                data-field="white_entered_correct"
+                placeholder="Blank = missing"
+              />
+              <p class="mt-1 text-xs text-gray-500">Wrong: {{ match.homework_entry.white_incorrect if match.homework_entry else 0 }}</p>
             </div>
             <div>
-              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Black homework</label>
-              <div class="mt-2 grid grid-cols-2 gap-2">
-                <input
-                  name="black_correct_{{ match.id }}"
-                  type="number"
-                  min="0"
-                  value="{{ match.homework_entry.black_correct if match.homework_entry else 0 }}"
-                  class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-                  placeholder="Correct"
-                />
-                <input
-                  name="black_incorrect_{{ match.id }}"
-                  type="number"
-                  min="0"
-                  value="{{ match.homework_entry.black_incorrect if match.homework_entry else 0 }}"
-                  class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-                  placeholder="Incorrect"
-                />
+              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Black correct</label>
+              <input
+                name="black_entered_correct_{{ match.id }}"
+                type="number"
+                min="0"
+                value="{{ match.homework_entry.black_correct if match.homework_entry and match.homework_entry.black_submitted else '' }}"
+                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                data-match-id="{{ match.id }}"
+                data-field="black_entered_correct"
+                placeholder="Blank = missing"
+                {% if black is none %}disabled{% endif %}
+              />
+              <p class="mt-1 text-xs text-gray-500">Wrong: {{ match.homework_entry.black_incorrect if match.homework_entry else 0 }}</p>
+            </div>
+            <div>
+              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Notation</label>
+              <div class="mt-2 space-y-2 text-sm">
+                <label class="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="notation_white_{{ match.id }}"
+                    {% if match.notation_submitted_white %}checked{% endif %}
+                    class="autosave-match"
+                    data-match-id="{{ match.id }}"
+                    data-field="notation_submitted_white"
+                    data-type="checkbox"
+                  />
+                  <span>{{ white.name if white else 'White' }}</span>
+                </label>
+                {% if black %}
+                  <label class="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="notation_black_{{ match.id }}"
+                      {% if match.notation_submitted_black %}checked{% endif %}
+                      class="autosave-match"
+                      data-match-id="{{ match.id }}"
+                      data-field="notation_submitted_black"
+                      data-type="checkbox"
+                    />
+                    <span>{{ black.name }}</span>
+                  </label>
+                {% endif %}
               </div>
             </div>
           </div>
@@ -103,16 +206,124 @@
               type="text"
               value="{{ match.notes }}"
               placeholder="Shared notes for both players"
-              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+              class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+              data-match-id="{{ match.id }}"
+              data-field="notes"
             />
           </div>
         </div>
       {% endfor %}
     </div>
 
-    <button
-      type="submit"
-      class="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-500"
-    >Save results</button>
+    <div class="rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+      <h2 class="text-sm font-semibold">Round completion guardrails</h2>
+      <p class="mt-1 text-xs text-gray-500">Complete round requires required fields; add reason to override unresolved items.</p>
+      <textarea
+        name="override_reason"
+        rows="2"
+        placeholder="Override reason (optional)"
+        class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+      >{{ round_record.completion_override_reason }}</textarea>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="submit" name="action" value="complete_round" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">Mark round complete</button>
+        <button type="submit" name="action" value="reopen_round" class="rounded-xl bg-gray-700 px-4 py-2 text-sm font-semibold text-white">Reopen round</button>
+      </div>
+    </div>
   </form>
+
+  <section class="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
+    <h2 class="text-sm font-semibold">Fairness diagnostics</h2>
+    <div class="mt-3 overflow-x-auto">
+      <table class="min-w-full text-xs">
+        <thead class="text-left uppercase text-gray-500">
+          <tr>
+            <th class="py-2">Match</th>
+            <th class="py-2">W/L/T</th>
+            <th class="py-2">Color pressure</th>
+            <th class="py-2">Repeat warning</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+          {% for row in fairness_diagnostics %}
+            <tr>
+              <td class="py-2">{{ row.white_name }} vs {{ row.black_name }}</td>
+              <td class="py-2">{{ row.white_wlt }} / {{ row.black_wlt }}</td>
+              <td class="py-2">{{ row.white_color_pressure }} / {{ row.black_color_pressure }}</td>
+              <td class="py-2">{% if row.repeat_warning %}Yes ({{ row.repeat_count }}){% else %}No{% endif %}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="py-2 text-gray-500">No paired matches in this round.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      const endpoint = "{{ url_for('autosave_round_field', classroom_id=classroom.id, round_id=round_record.id) }}";
+      const csrfToken = "{{ csrf_token }}";
+      const statusEl = document.getElementById('autosave-status');
+      const timers = new Map();
+
+      const setStatus = (text, isError = false) => {
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.classList.toggle('text-rose-600', isError);
+      };
+
+      const save = (payload) => {
+        setStatus('Saving...');
+        const body = new URLSearchParams({ csrf_token: csrfToken, ...payload });
+        fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        })
+          .then((resp) => resp.json())
+          .then((data) => {
+            if (!data.saved) {
+              setStatus(data.error || 'Save failed', true);
+              return;
+            }
+            setStatus('All changes saved.');
+          })
+          .catch(() => setStatus('Save failed', true));
+      };
+
+      const debounceSave = (key, payload) => {
+        const existing = timers.get(key);
+        if (existing) {
+          clearTimeout(existing);
+        }
+        timers.set(
+          key,
+          setTimeout(() => {
+            save(payload);
+            timers.delete(key);
+          },
+          800)
+        );
+      };
+
+      document.querySelectorAll('.autosave-match').forEach((el) => {
+        const eventName = el.dataset.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(eventName, () => {
+          const matchId = el.dataset.matchId;
+          const field = el.dataset.field;
+          const value = el.dataset.type === 'checkbox' ? String(el.checked) : el.value;
+          debounceSave(`${field}-${matchId}`, { match_id: matchId, field, value });
+        });
+      });
+
+      document.querySelectorAll('.autosave-attendance, .autosave-round').forEach((el) => {
+        const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(eventName, () => {
+          const field = el.dataset.field;
+          const value = el.value;
+          debounceSave(field, { field, value });
+        });
+      });
+    })();
+  </script>
 {% endblock %}

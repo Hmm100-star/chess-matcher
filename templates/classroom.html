@@ -19,6 +19,10 @@
         href="{{ url_for('export_students', classroom_id=classroom.id) }}"
         class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-400 hover:text-emerald-600 dark:border-gray-700 dark:text-gray-200"
       >Export students</a>
+      <a
+        href="{{ url_for('exceptions_queue', classroom_id=classroom.id) }}"
+        class="rounded-2xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:border-amber-400 dark:border-amber-700 dark:text-amber-200"
+      >Exceptions queue</a>
     </div>
   </div>
 
