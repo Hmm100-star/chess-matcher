@@ -972,6 +972,9 @@ def round_results(classroom_id: int, round_id: int) -> str:
                     .all()
                 )
                 recalculate_totals(students, all_matches)
+                # Flush inside this guarded block so DB write errors render
+                # as recoverable form errors instead of bubbling as 500s at commit.
+                db.flush()
                 return redirect(
                     url_for("round_results", classroom_id=classroom_id, round_id=round_id)
                 )
