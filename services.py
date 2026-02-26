@@ -180,13 +180,13 @@ def recalculate_totals(students: Iterable[Student], matches: Iterable[Match]) ->
         if black_id and black_id in student_map:
             student_map[black_id].times_black += 1
 
-        if result == "white" and white_id and black_id:
+        if result == "white" and white_id and black_id and white_id in student_map and black_id in student_map:
             student_map[white_id].total_wins += 1
             student_map[black_id].total_losses += 1
-        elif result == "black" and white_id and black_id:
+        elif result == "black" and white_id and black_id and white_id in student_map and black_id in student_map:
             student_map[black_id].total_wins += 1
             student_map[white_id].total_losses += 1
-        elif result == "tie" and white_id and black_id:
+        elif result == "tie" and white_id and black_id and white_id in student_map and black_id in student_map:
             student_map[white_id].total_ties += 1
             student_map[black_id].total_ties += 1
 

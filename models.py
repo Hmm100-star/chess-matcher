@@ -127,10 +127,10 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True)
-    classroom_id = Column(Integer, ForeignKey("classrooms.id"), nullable=False)
-    round_id = Column(Integer, ForeignKey("rounds.id"), nullable=False)
-    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False)
-    actor_teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    classroom_id = Column(Integer, nullable=False)
+    round_id = Column(Integer, nullable=False)
+    match_id = Column(Integer, nullable=False)
+    actor_teacher_id = Column(Integer, nullable=False)
     field_name = Column(String(100), nullable=False)
     old_value = Column(Text, default="", nullable=False)
     new_value = Column(Text, default="", nullable=False)

@@ -68,3 +68,10 @@ ALTER TABLE IF EXISTS audit_logs
   ADD COLUMN IF NOT EXISTS old_value TEXT NOT NULL DEFAULT '';
 ALTER TABLE IF EXISTS audit_logs
   ADD COLUMN IF NOT EXISTS new_value TEXT NOT NULL DEFAULT '';
+
+-- Drop FK constraints that may have been added by create_all().
+-- Audit logs should be a standalone table without cascading dependencies.
+ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_classroom_id_fkey;
+ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_round_id_fkey;
+ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_match_id_fkey;
+ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_actor_teacher_id_fkey;

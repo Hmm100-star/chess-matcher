@@ -94,19 +94,14 @@ def initialize_database() -> None:
             extra={"database_url": redacted_database_url()},
         )
         Base.metadata.create_all(bind=engine)
-        schema_issues = verify_schema_compatibility(fail_fast=False)
-        if schema_issues and IS_PRODUCTION:
+        # Always apply the Postgres compatibility patch in production so that
+        # idempotent fixes (e.g. dropping stale FK constraints) run even when
+        # the column-level schema check reports no issues.
+        if IS_PRODUCTION:
             patched = apply_postgres_schema_compatibility_patch()
             if patched:
-                logger.warning(
-                    "Applied Postgres schema compatibility patch",
-                    extra={
-                        "database_url": redacted_database_url(),
-                        "issues_before_patch": schema_issues,
-                    },
-                )
-                schema_issues = verify_schema_compatibility(fail_fast=False)
-
+                logger.info("Applied Postgres schema compatibility patch")
+        schema_issues = verify_schema_compatibility(fail_fast=False)
         if schema_issues:
             logger.warning(
                 "Database schema compatibility issues detected",
@@ -279,17 +274,27 @@ def log_field_change(
 ) -> None:
     if str(old_value) == str(new_value):
         return
-    db.add(
-        AuditLog(
-            actor_teacher_id=teacher_id,
-            classroom_id=classroom_id,
-            round_id=round_id,
-            match_id=match_id,
-            field_name=field_name,
-            old_value=str(old_value),
-            new_value=str(new_value),
+    try:
+        db.add(
+            AuditLog(
+                actor_teacher_id=teacher_id,
+                classroom_id=classroom_id,
+                round_id=round_id,
+                match_id=match_id,
+                field_name=field_name,
+                old_value=str(old_value),
+                new_value=str(new_value),
+            )
         )
-    )
+    except Exception:
+        logger.warning(
+            "Failed to create audit log entry",
+            extra={
+                "field_name": field_name,
+                "match_id": match_id,
+                "round_id": round_id,
+            },
+        )
 
 
 def compute_attendance_metrics(attendance_records: list[Attendance]) -> dict[int, dict[str, float]]:
@@ -981,7 +986,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
             except ValueError as exc:
                 db.rollback()
                 error = str(exc)
-            except (SQLAlchemyError, TypeError, AttributeError) as exc:
+            except (SQLAlchemyError, TypeError, AttributeError, KeyError) as exc:
                 db.rollback()
                 logger.exception(
                     "Round results POST failed with recoverable error",
@@ -1298,7 +1303,7 @@ def autosave_round_field(classroom_id: int, round_id: int):
         except ValueError as exc:
             db.rollback()
             return jsonify({"saved": False, "error": str(exc)}), 400
-        except (SQLAlchemyError, TypeError, AttributeError) as exc:
+        except (SQLAlchemyError, TypeError, AttributeError, KeyError) as exc:
             db.rollback()
             logger.exception(
                 "Autosave failed with recoverable error",
