@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import io
 import csv
 import importlib
@@ -8,7 +9,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 
 class RoundGenerationFlowTests(unittest.TestCase):
@@ -403,7 +404,7 @@ class RoundGenerationFlowTests(unittest.TestCase):
                 follow_redirects=True,
             )
 
-        body = response.get_data(as_text=True)
+        body = html.unescape(response.get_data(as_text=True))
         self.assertEqual(response.status_code, 200)
         self.assertIn("We couldn't save round changes due to a temporary data issue. Please retry.", body)
         self.assertNotIn("We hit an unexpected error", body)
@@ -418,10 +419,18 @@ class RoundGenerationFlowTests(unittest.TestCase):
         round_page = self.client.get(f"/classrooms/{classroom_id}/rounds/{round_id}")
         csrf = self._extract_csrf(round_page.get_data(as_text=True))
 
-        with patch(
-            "sqlalchemy.orm.session.Session.flush",
-            side_effect=self.app_module.SQLAlchemyError("forced"),
-        ):
+        from sqlalchemy.orm.session import Session as _Ses
+        _real_flush = _Ses.flush
+        _flush_calls = 0
+
+        def _flaky_flush(self_session, objects=None):
+            nonlocal _flush_calls
+            _flush_calls += 1
+            if _flush_calls == 1:
+                raise self.app_module.SQLAlchemyError("forced")
+            return _real_flush(self_session, objects)
+
+        with patch.object(_Ses, "flush", _flaky_flush):
             response = self.client.post(
                 f"/classrooms/{classroom_id}/rounds/{round_id}",
                 data={
@@ -436,7 +445,7 @@ class RoundGenerationFlowTests(unittest.TestCase):
                 follow_redirects=True,
             )
 
-        body = response.get_data(as_text=True)
+        body = html.unescape(response.get_data(as_text=True))
         self.assertEqual(response.status_code, 200)
         self.assertIn("We couldn't save round changes due to a temporary data issue. Please retry.", body)
         self.assertNotIn("We hit an unexpected error", body)

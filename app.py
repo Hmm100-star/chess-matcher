@@ -995,6 +995,27 @@ def round_results(classroom_id: int, round_id: int) -> str:
                 )
                 error = "We couldn't save round changes due to a temporary data issue. Please retry."
 
+            if error:
+                # After rollback all ORM objects are expired.  Re-query so
+                # the template can access relationships without a live session.
+                classroom = db.get(Classroom, classroom_id)
+                round_record = db.get(Round, round_id)
+                matches = (
+                    db.query(Match)
+                    .options(selectinload(Match.homework_entry))
+                    .filter(Match.round_id == round_id)
+                    .order_by(Match.id)
+                    .all()
+                )
+                attendance_records = (
+                    db.query(Attendance)
+                    .filter(Attendance.round_id == round_id)
+                    .all()
+                )
+                attendance_by_student = {record.student_id: record for record in attendance_records}
+                students = db.query(Student).filter(Student.classroom_id == classroom_id).all()
+                student_map = {student.id: student for student in students}
+
         opponent_counts: dict[tuple[int, int], int] = {}
         historical_matches = (
             db.query(Match)
@@ -1272,9 +1293,24 @@ def autosave_round_field(classroom_id: int, round_id: int):
                 .all()
             )
             recalculate_totals(all_students, all_matches)
+            db.flush()
             return jsonify({"saved": True, "updated_at": datetime.utcnow().isoformat()})
         except ValueError as exc:
+            db.rollback()
             return jsonify({"saved": False, "error": str(exc)}), 400
+        except (SQLAlchemyError, TypeError, AttributeError) as exc:
+            db.rollback()
+            logger.exception(
+                "Autosave failed with recoverable error",
+                extra={
+                    "classroom_id": classroom_id,
+                    "round_id": round_id,
+                    "teacher_id": teacher.id,
+                    "field": field,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return jsonify({"saved": False, "error": "Save failed due to a temporary data issue. Please retry."}), 500
 
 
 @app.route("/classrooms/<int:classroom_id>/exceptions")
