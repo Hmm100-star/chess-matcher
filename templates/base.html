@@ -17,6 +17,13 @@
       applyTheme(prefersDark);
       prefersDark.addEventListener('change', applyTheme);
     </script>
+    <style>
+      @keyframes pulse-save {
+        0%, 100% { opacity: 1; }
+        50% { opacity: .5; }
+      }
+      .autosave-saving { animation: pulse-save 1s ease-in-out infinite; }
+    </style>
   </head>
   <body class="min-h-full text-gray-900 dark:text-gray-100">
     <header class="bg-white/80 shadow-sm backdrop-blur dark:bg-gray-900/80">
@@ -26,13 +33,16 @@
           <span class="text-xs font-normal text-gray-500 dark:text-gray-400">Multi-class, database-powered pairing</span>
         </div>
         <nav class="flex flex-wrap items-center gap-2">
+          {% set active_nav = active_nav|default('') %}
           <a
             href="{{ url_for('dashboard') }}"
-            class="inline-flex items-center justify-center rounded-2xl px-4 py-2 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-indigo-100 hover:text-indigo-700 dark:hover:bg-indigo-900/60"
+            class="inline-flex items-center justify-center rounded-2xl px-4 py-2 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-indigo-100 hover:text-indigo-700 dark:hover:bg-indigo-900/60
+              {% if active_nav == 'dashboard' %} bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300{% endif %}"
           >Dashboard</a>
           <a
             href="{{ url_for('about_page') }}"
-            class="inline-flex items-center justify-center rounded-2xl px-4 py-2 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-sky-100 hover:text-sky-700 dark:hover:bg-sky-900/60"
+            class="inline-flex items-center justify-center rounded-2xl px-4 py-2 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-sky-100 hover:text-sky-700 dark:hover:bg-sky-900/60
+              {% if active_nav == 'about' %} bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300{% endif %}"
           >About</a>
           <a
             href="{{ github_url }}"
@@ -52,6 +62,24 @@
         </nav>
       </div>
     </header>
+
+    {# ── Breadcrumb navigation ── #}
+    {% if breadcrumbs is defined and breadcrumbs %}
+      <nav aria-label="Breadcrumb" class="border-b border-gray-200 bg-white/60 backdrop-blur dark:border-gray-700 dark:bg-gray-900/60">
+        <ol class="mx-auto flex max-w-6xl items-center gap-1 px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+          {% for crumb in breadcrumbs %}
+            {% if not loop.last %}
+              <li class="flex items-center gap-1">
+                <a href="{{ crumb.url }}" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ crumb.label }}</a>
+                <svg class="h-3.5 w-3.5 flex-shrink-0 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+              </li>
+            {% else %}
+              <li class="font-semibold text-gray-900 dark:text-gray-100" aria-current="page">{{ crumb.label }}</li>
+            {% endif %}
+          {% endfor %}
+        </ol>
+      </nav>
+    {% endif %}
 
     <main class="mx-auto w-full max-w-6xl px-4 py-8">
       {% if error %}

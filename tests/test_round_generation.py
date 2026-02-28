@@ -354,7 +354,7 @@ class RoundGenerationFlowTests(unittest.TestCase):
             follow_redirects=True,
         )
         self.assertEqual(complete_with_override.status_code, 200)
-        self.assertIn("Round status: <span class=\"font-semibold\">completed</span>", complete_with_override.get_data(as_text=True))
+        self.assertIn("Completed</span>", complete_with_override.get_data(as_text=True))
 
     def test_complete_round_handles_missing_policy_fields_without_500(self) -> None:
         self._bootstrap_teacher_and_login()

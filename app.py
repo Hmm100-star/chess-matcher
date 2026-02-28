@@ -392,7 +392,7 @@ def setup() -> str:
         if not error:
             return redirect(url_for("login"))
 
-    return render_template("setup.html", error=error)
+    return render_template("setup.html", error=error, active_nav="")
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -412,7 +412,7 @@ def signup() -> str:
         if not error:
             return redirect(url_for("login"))
 
-    return render_template("signup.html", error=error)
+    return render_template("signup.html", error=error, active_nav="")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -452,7 +452,7 @@ def login() -> str:
             session["teacher_id"] = teacher.id
             return redirect(url_for("dashboard"))
 
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, active_nav="")
 
 
 @app.errorhandler(Exception)
@@ -461,7 +461,7 @@ def handle_unexpected_error(error: Exception):
         return error
     support_id = uuid.uuid4().hex[:12]
     log_exception(error, support_id)
-    return render_template("500.html", support_id=support_id), 500
+    return render_template("500.html", support_id=support_id, active_nav=""), 500
 
 
 @app.route("/health/db")
@@ -527,7 +527,14 @@ def dashboard() -> str:
                 db.commit()
                 return redirect(url_for("dashboard"))
 
-    return render_template("dashboard.html", teacher=teacher, classrooms=classrooms, error=error)
+    return render_template(
+        "dashboard.html",
+        teacher=teacher,
+        classrooms=classrooms,
+        error=error,
+        active_nav="dashboard",
+        breadcrumbs=[{"label": "Dashboard"}],
+    )
 
 
 @app.route("/classrooms/<int:classroom_id>")
@@ -562,6 +569,11 @@ def classroom_overview(classroom_id: int) -> str:
         rounds=rounds,
         success=request.args.get("success"),
         error=request.args.get("error"),
+        active_nav="dashboard",
+        breadcrumbs=[
+            {"label": "Dashboard", "url": url_for("dashboard")},
+            {"label": classroom.name},
+        ],
     )
 
 
@@ -775,6 +787,12 @@ def new_round(classroom_id: int) -> str:
         default_homework_total_questions=10,
         default_missing_homework_policy="zero",
         default_homework_metric_mode="pct_correct",
+        active_nav="dashboard",
+        breadcrumbs=[
+            {"label": "Dashboard", "url": url_for("dashboard")},
+            {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+            {"label": "New Round"},
+        ],
     )
 
 
@@ -1180,6 +1198,12 @@ def round_results(classroom_id: int, round_id: int) -> str:
         eq_absences=eq_absences,
         prev_round_absent_ids=list(prev_round_absent_ids),
         prev_round_absent_names=prev_round_absent_names,
+        active_nav="dashboard",
+        breadcrumbs=[
+            {"label": "Dashboard", "url": url_for("dashboard")},
+            {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+            {"label": f"Round {round_record.round_number if round_record.round_number is not None else round_record.id}"},
+        ],
     )
 
 
@@ -1500,6 +1524,12 @@ def exceptions_queue(classroom_id: int) -> str:
                 missing_notation=[],
                 unresolved_results=[],
                 absences=[],
+                active_nav="dashboard",
+                breadcrumbs=[
+                    {"label": "Dashboard", "url": url_for("dashboard")},
+                    {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+                    {"label": "Exceptions Queue"},
+                ],
             )
 
         matches = (
@@ -1549,6 +1579,12 @@ def exceptions_queue(classroom_id: int) -> str:
         missing_notation=missing_notation,
         unresolved_results=unresolved_results,
         absences=absences,
+        active_nav="dashboard",
+        breadcrumbs=[
+            {"label": "Dashboard", "url": url_for("dashboard")},
+            {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+            {"label": "Exceptions Queue"},
+        ],
     )
 
 
@@ -1754,12 +1790,22 @@ def import_students(classroom_id: int) -> str:
                                 url_for("classroom_overview", classroom_id=classroom_id)
                             )
 
-    return render_template("import_students.html", classroom=classroom, error=error)
+    return render_template(
+        "import_students.html",
+        classroom=classroom,
+        error=error,
+        active_nav="dashboard",
+        breadcrumbs=[
+            {"label": "Dashboard", "url": url_for("dashboard")},
+            {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+            {"label": "Import Students"},
+        ],
+    )
 
 
 @app.route("/about")
 def about_page() -> str:
-    return render_template("about.html")
+    return render_template("about.html", active_nav="about")
 
 
 if __name__ == "__main__":

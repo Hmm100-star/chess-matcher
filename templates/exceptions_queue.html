@@ -4,9 +4,12 @@
   <div class="mb-6 flex items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-semibold">Exceptions queue</h1>
-      <p class="text-sm text-gray-600 dark:text-gray-300">Missing items for the last completed round.</p>
+      <p class="text-sm text-gray-600 dark:text-gray-300">Incomplete items from the latest completed round of {{ classroom.name }}.</p>
     </div>
-    <a href="{{ url_for('classroom_overview', classroom_id=classroom.id) }}" class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-200">Back to class</a>
+    <a
+      href="{{ url_for('classroom_overview', classroom_id=classroom.id) }}"
+      class="inline-flex items-center gap-1.5 rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+    ><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>Back to class</a>
   </div>
 
   {% if not round_record %}
