@@ -1331,7 +1331,7 @@ def exceptions_queue(classroom_id: int) -> str:
 
         round_record = (
             db.query(Round)
-            .filter(Round.classroom_id == classroom_id)
+            .filter(Round.classroom_id == classroom_id, Round.status == "completed")
             .order_by(Round.created_at.desc())
             .first()
         )
