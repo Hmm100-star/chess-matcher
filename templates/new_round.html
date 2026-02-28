@@ -48,25 +48,6 @@
         {% endif %}
       </div>
 
-      {# ── Missing-score policy (global for all assignment types in this round) ── #}
-      <div class="grid gap-4 md:grid-cols-2">
-        <div>
-          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="missing_score_pct">Missing / blank score %</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">How to count blank or missing submissions when pairing. Leave empty to exclude them (no effect), enter <strong>0</strong> to count as 0&thinsp;%, or enter a number (e.g. 50) to treat blanks as that percentage correct.</p>
-          <input
-            id="missing_score_pct"
-            name="missing_score_pct"
-            type="number"
-            step="any"
-            min="0"
-            max="100"
-            {% if default_missing_score_pct is not none %}value="{{ default_missing_score_pct }}"{% endif %}
-            placeholder="Leave blank to exclude"
-            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-          />
-        </div>
-      </div>
-
       {% if assignment_types %}
         {# ── Per-assignment-type weight rows (compact) ───────────────────── #}
         <div class="rounded-2xl border border-purple-200 bg-purple-50/50 p-3 dark:border-purple-900/40 dark:bg-purple-900/10">
@@ -98,6 +79,17 @@
                     type="number" min="0" value="10"
                     class="w-14 rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
                   />
+                </div>
+                <div class="flex items-center gap-1">
+                  <label class="text-xs text-gray-500" for="rat_{{ at.id }}_missing_score_pct">Missing</label>
+                  <input
+                    id="rat_{{ at.id }}_missing_score_pct"
+                    name="rat_{{ at.id }}_missing_score_pct"
+                    type="number" step="any" min="0" max="100"
+                    placeholder="—"
+                    class="w-14 rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                  />
+                  <span class="text-xs text-gray-400 dark:text-gray-500">%</span>
                 </div>
                 <span class="ml-auto text-xs text-gray-400 dark:text-gray-500">
                   {{ 'Pct' if at.metric_mode == 'pct_correct' else 'Total' }}

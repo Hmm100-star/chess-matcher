@@ -801,36 +801,36 @@ def new_round(classroom_id: int) -> str:
             except ValueError as exc:
                 error = str(exc)
             else:
-                # ── Parse missing score percentage ────────────────────────
-                _missing_pct_raw = request.form.get("missing_score_pct", "").strip()
-                if _missing_pct_raw:
-                    try:
-                        missing_score_pct: Optional[float] = max(0.0, min(100.0, float(_missing_pct_raw)))
-                    except ValueError:
-                        error = "Missing score % must be a number between 0 and 100."
-                        missing_score_pct = None
-                else:
-                    missing_score_pct = None
-                # ── Parse per-assignment-type weights ────────────────────
+                # ── Parse per-assignment-type weights + per-type missing score ──
                 active_at_configs: list[dict] = []
+                _parse_error = False
                 for at in assignment_types:
                     raw_w = request.form.get(f"rat_{at.id}_weight", "").strip()
                     raw_q = request.form.get(f"rat_{at.id}_total_questions", "").strip()
+                    raw_m = request.form.get(f"rat_{at.id}_missing_score_pct", "").strip()
                     try:
                         at_weight = float(raw_w) if raw_w else 0.0
                         at_total_q = parse_non_negative_int(raw_q, f"{at.name} total questions") if raw_q else 0
+                        if raw_m:
+                            at_missing_score_pct: Optional[float] = max(0.0, min(100.0, float(raw_m)))
+                        else:
+                            at_missing_score_pct = None
                     except ValueError as exc:
                         error = f"{at.name}: {exc}"
+                        _parse_error = True
                         break
                     if at_weight < 0:
                         error = f"{at.name} weight must be zero or greater."
+                        _parse_error = True
                         break
                     if at_weight > 0:
                         active_at_configs.append({
                             "at": at,
                             "weight": at_weight,
                             "total_questions": at_total_q,
+                            "missing_score_pct": at_missing_score_pct,
                         })
+                missing_score_pct: Optional[float] = None  # legacy fallback (unused in new path)
 
                 if not error:
                     try:
@@ -849,6 +849,7 @@ def new_round(classroom_id: int) -> str:
                                     "weight": cfg["weight"],
                                     "metric_mode": at.metric_mode,
                                     "student_scores": student_scores,
+                                    "missing_score_pct": cfg["missing_score_pct"],
                                 })
                             logger.info(
                                 "Round generation started",
@@ -864,7 +865,6 @@ def new_round(classroom_id: int) -> str:
                                 present_students,
                                 win_weight,
                                 assignment_type_data=assignment_type_data,
-                                missing_score_pct=missing_score_pct,
                             )
                             # Determine next round number.
                             max_rn = (
@@ -885,7 +885,7 @@ def new_round(classroom_id: int) -> str:
                                 status="open",
                                 homework_total_questions=0,
                                 missing_homework_policy="zero",
-                                missing_score_pct=missing_score_pct,
+                                missing_score_pct=None,
                                 homework_metric_mode="pct_correct",
                             )
                             db.add(round_record)
@@ -905,6 +905,7 @@ def new_round(classroom_id: int) -> str:
                                     assignment_type_id=cfg["at"].id,
                                     weight=int(cfg["weight"]),
                                     total_questions=cfg["total_questions"],
+                                    missing_score_pct=cfg["missing_score_pct"],
                                 ))
 
                             # Create match records with AssignmentEntry per active type.

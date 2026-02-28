@@ -64,6 +64,7 @@ def build_rating_dataframe(
         for at in assignment_type_data:
             at_metric = canonicalize_homework_metric_mode(at.get("metric_mode", "pct_correct"))
             scores_map: Dict[int, Tuple[int, int]] = at.get("student_scores", {})
+            at_missing_pct = at.get("missing_score_pct", missing_score_pct)  # per-type, fallback to global
             missing_indices: List[int] = []
             raw: List[float] = []
             for idx, student in enumerate(student_cache):
@@ -80,8 +81,8 @@ def build_rating_dataframe(
                 max_val = max(raw) if raw else 0.0
                 raw = [s / max_val if max_val > 0 else 0.0 for s in raw]
             # Apply missing_score_pct for students with no historical score.
-            if missing_score_pct is not None and missing_indices:
-                synthetic = max(0.0, min(100.0, missing_score_pct)) / 100.0
+            if at_missing_pct is not None and missing_indices:
+                synthetic = max(0.0, min(100.0, at_missing_pct)) / 100.0
                 for idx in missing_indices:
                     raw[idx] = synthetic
             at_score_lists.append(raw)

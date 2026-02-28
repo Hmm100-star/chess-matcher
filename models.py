@@ -167,6 +167,7 @@ class RoundAssignmentType(Base):
     assignment_type_id = Column(Integer, ForeignKey("assignment_types.id"), nullable=False)
     weight = Column(Integer, default=30, nullable=False)  # integer 0-100
     total_questions = Column(Integer, default=0, nullable=False)
+    missing_score_pct = Column(Float, nullable=True)  # None=exclude, 0-100=treat blanks as that % correct
 
     round = relationship("Round", back_populates="round_assignment_types")
     assignment_type = relationship("AssignmentType", back_populates="round_assignment_types")
