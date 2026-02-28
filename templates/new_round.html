@@ -31,56 +31,117 @@
             class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
           />
         </div>
-        <div>
-          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_weight">Homework accuracy weight</label>
-          <input
-            id="homework_weight"
-            name="homework_weight"
-            type="number"
-            step="0.01"
-            min="0"
-            value="{{ default_homework_weight }}"
-            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-          />
-        </div>
+        {% if not assignment_types %}
+          {# Legacy homework weight — shown only when no assignment types are configured #}
+          <div>
+            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_weight">Homework accuracy weight</label>
+            <input
+              id="homework_weight"
+              name="homework_weight"
+              type="number"
+              step="0.01"
+              min="0"
+              value="{{ default_homework_weight }}"
+              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+            />
+          </div>
+        {% endif %}
       </div>
 
-      <div class="grid gap-4 md:grid-cols-3">
-        <div>
-          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_total_questions">Homework total questions</label>
-          <input
-            id="homework_total_questions"
-            name="homework_total_questions"
-            type="number"
-            min="0"
-            value="{{ default_homework_total_questions }}"
-            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-          />
+      {% if assignment_types %}
+        {# ── Per-assignment-type weight rows ─────────────────────────────── #}
+        <div class="rounded-2xl border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-900/40 dark:bg-purple-900/10">
+          <div class="mb-3 flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-purple-800 dark:text-purple-300">Assignment type weights</h2>
+            <a
+              href="{{ url_for('manage_assignment_types', classroom_id=classroom.id) }}"
+              class="text-xs text-purple-600 hover:underline dark:text-purple-400"
+            >Manage types &rarr;</a>
+          </div>
+          <p class="mb-4 text-xs text-gray-500 dark:text-gray-400">
+            Set a weight of 0 to exclude a type from this round. Weights are normalised automatically alongside the win weight.
+          </p>
+          <div class="space-y-3">
+            {% for at in assignment_types %}
+              <div class="rounded-xl border border-purple-200 bg-white p-3 dark:border-purple-800/50 dark:bg-gray-900/60">
+                <p class="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">{{ at.name }}</p>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label class="text-xs font-medium text-gray-600 dark:text-gray-400" for="rat_{{ at.id }}_weight">Pairing weight</label>
+                    <input
+                      id="rat_{{ at.id }}_weight"
+                      name="rat_{{ at.id }}_weight"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value="0.30"
+                      class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-gray-600 dark:text-gray-400" for="rat_{{ at.id }}_total_questions">Total questions</label>
+                    <input
+                      id="rat_{{ at.id }}_total_questions"
+                      name="rat_{{ at.id }}_total_questions"
+                      type="number"
+                      min="0"
+                      value="10"
+                      class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900"
+                    />
+                  </div>
+                </div>
+                <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  Metric: {{ 'Percentage Correct' if at.metric_mode == 'pct_correct' else 'Total Correct' }}
+                  &middot;
+                  Missing: {{ {'zero': 'Count as 0%', 'exclude': 'Exclude', 'penalty': 'Penalty'}.get(at.missing_policy, at.missing_policy) }}
+                </p>
+              </div>
+            {% endfor %}
+          </div>
         </div>
-        <div>
-          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="missing_homework_policy">Missing homework policy</label>
-          <select
-            id="missing_homework_policy"
-            name="missing_homework_policy"
-            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-          >
-            <option value="zero" {% if default_missing_homework_policy == 'zero' %}selected{% endif %}>Count as 0%</option>
-            <option value="exclude" {% if default_missing_homework_policy == 'exclude' %}selected{% endif %}>Exclude from denominator</option>
-            <option value="penalty" {% if default_missing_homework_policy == 'penalty' %}selected{% endif %}>Missing penalty</option>
-          </select>
+      {% else %}
+        {# Legacy homework settings — only when no assignment types #}
+        <div class="grid gap-4 md:grid-cols-3">
+          <div>
+            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_total_questions">Homework total questions</label>
+            <input
+              id="homework_total_questions"
+              name="homework_total_questions"
+              type="number"
+              min="0"
+              value="{{ default_homework_total_questions }}"
+              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+            />
+          </div>
+          <div>
+            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="missing_homework_policy">Missing homework policy</label>
+            <select
+              id="missing_homework_policy"
+              name="missing_homework_policy"
+              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+            >
+              <option value="zero" {% if default_missing_homework_policy == 'zero' %}selected{% endif %}>Count as 0%</option>
+              <option value="exclude" {% if default_missing_homework_policy == 'exclude' %}selected{% endif %}>Exclude from denominator</option>
+              <option value="penalty" {% if default_missing_homework_policy == 'penalty' %}selected{% endif %}>Missing penalty</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_metric_mode">Homework metric for pairing</label>
+            <select
+              id="homework_metric_mode"
+              name="homework_metric_mode"
+              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+            >
+              <option value="pct_correct" {% if default_homework_metric_mode == 'pct_correct' %}selected{% endif %}>Percentage Correct</option>
+              <option value="total_correct" {% if default_homework_metric_mode == 'total_correct' %}selected{% endif %}>Total Correct</option>
+            </select>
+          </div>
         </div>
-        <div>
-          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="homework_metric_mode">Homework metric for pairing</label>
-          <select
-            id="homework_metric_mode"
-            name="homework_metric_mode"
-            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-          >
-            <option value="pct_correct" {% if default_homework_metric_mode == 'pct_correct' %}selected{% endif %}>Percentage Correct</option>
-            <option value="total_correct" {% if default_homework_metric_mode == 'total_correct' %}selected{% endif %}>Total Correct</option>
-          </select>
-        </div>
-      </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          <a href="{{ url_for('manage_assignment_types', classroom_id=classroom.id) }}" class="text-purple-600 hover:underline dark:text-purple-400">Set up assignment types</a>
+          to replace legacy homework weight with per-type tracking.
+        </p>
+      {% endif %}
 
       <div>
         <h2 class="text-lg font-semibold">Attendance status</h2>

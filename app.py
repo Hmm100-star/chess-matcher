@@ -42,11 +42,15 @@ from db import (
 from models import (
     Attendance,
     AuditLog,
+    AssignmentEntry,
+    AssignmentType,
     Classroom,
     HomeworkEntry,
     Match,
     Round,
+    RoundAssignmentType,
     Student,
+    StudentAssignmentScore,
     Teacher,
 )
 from pairing_logic import normalize_weights
@@ -524,6 +528,14 @@ def dashboard() -> str:
             else:
                 classroom = Classroom(name=name, teacher_id=teacher.id)
                 db.add(classroom)
+                db.flush()  # get classroom.id
+                # Auto-create a default "Homework" assignment type for every new classroom.
+                db.add(AssignmentType(
+                    classroom_id=classroom.id,
+                    name="Homework",
+                    metric_mode="pct_correct",
+                    missing_policy="zero",
+                ))
                 db.commit()
                 return redirect(url_for("dashboard"))
 
@@ -625,6 +637,102 @@ def update_student(student_id: int) -> str:
     return redirect(url_for("classroom_overview", classroom_id=classroom_id))
 
 
+# ── Assignment-type management ────────────────────────────────────────────────
+
+@app.route("/classrooms/<int:classroom_id>/assignment_types", methods=["GET", "POST"])
+def manage_assignment_types(classroom_id: int) -> str:
+    teacher = require_login()
+    if not isinstance(teacher, Teacher):
+        return teacher
+
+    with session_scope() as db:
+        classroom = db.get(Classroom, classroom_id)
+        if not classroom or classroom.teacher_id != teacher.id:
+            abort(404)
+
+        error = None
+        if request.method == "POST":
+            require_csrf()
+            at_name = request.form.get("name", "").strip()
+            at_metric = request.form.get("metric_mode", "pct_correct").strip()
+            at_policy = request.form.get("missing_policy", "zero").strip()
+            if not at_name:
+                error = "Assignment type name is required."
+            elif at_metric not in VALID_HOMEWORK_METRIC_MODES:
+                error = "Invalid metric mode."
+            elif at_policy not in {"zero", "exclude", "penalty"}:
+                error = "Invalid missing policy."
+            else:
+                at_metric = canonicalize_homework_metric_mode(at_metric)
+                db.add(AssignmentType(
+                    classroom_id=classroom_id,
+                    name=at_name,
+                    metric_mode=at_metric,
+                    missing_policy=at_policy,
+                ))
+
+        assignment_types = (
+            db.query(AssignmentType)
+            .filter(AssignmentType.classroom_id == classroom_id)
+            .order_by(AssignmentType.id)
+            .all()
+        )
+        return render_template(
+            "assignment_types.html",
+            classroom=classroom,
+            assignment_types=assignment_types,
+            error=error,
+            active_nav="dashboard",
+            breadcrumbs=[
+                {"label": "Dashboard", "url": url_for("dashboard")},
+                {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+                {"label": "Assignment Types"},
+            ],
+        )
+
+
+@app.route("/classrooms/<int:classroom_id>/assignment_types/<int:type_id>/delete", methods=["POST"])
+def delete_assignment_type(classroom_id: int, type_id: int):
+    teacher = require_login()
+    if not isinstance(teacher, Teacher):
+        return teacher
+
+    require_csrf()
+    with session_scope() as db:
+        classroom = db.get(Classroom, classroom_id)
+        if not classroom or classroom.teacher_id != teacher.id:
+            abort(404)
+        at = db.get(AssignmentType, type_id)
+        if not at or at.classroom_id != classroom_id:
+            abort(404)
+        # Refuse deletion if there are AssignmentEntry records for this type.
+        has_entries = db.query(AssignmentEntry).filter(
+            AssignmentEntry.assignment_type_id == type_id
+        ).first()
+        if has_entries:
+            assignment_types = (
+                db.query(AssignmentType)
+                .filter(AssignmentType.classroom_id == classroom_id)
+                .order_by(AssignmentType.id)
+                .all()
+            )
+            return render_template(
+                "assignment_types.html",
+                classroom=classroom,
+                assignment_types=assignment_types,
+                error=f"Cannot delete '{at.name}' because it has score data. Remove score data first.",
+                active_nav="dashboard",
+                breadcrumbs=[
+                    {"label": "Dashboard", "url": url_for("dashboard")},
+                    {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+                    {"label": "Assignment Types"},
+                ],
+            )
+        db.delete(at)
+
+    return redirect(url_for("manage_assignment_types", classroom_id=classroom_id))
+
+
 @app.route("/classrooms/<int:classroom_id>/rounds/new", methods=["GET", "POST"])
 def new_round(classroom_id: int) -> str:
     teacher = require_login()
@@ -642,145 +750,251 @@ def new_round(classroom_id: int) -> str:
             .order_by(Student.name)
             .all()
         )
+        assignment_types = (
+            db.query(AssignmentType)
+            .filter(AssignmentType.classroom_id == classroom_id)
+            .order_by(AssignmentType.id)
+            .all()
+        )
 
         error = None
         if request.method == "POST":
             require_csrf()
             win_weight_raw = request.form.get("win_weight", "").strip()
-            homework_weight_raw = request.form.get("homework_weight", "").strip()
-            homework_total_raw = request.form.get("homework_total_questions", "").strip()
-            missing_homework_policy = request.form.get("missing_homework_policy", "zero").strip()
-            homework_metric_mode = request.form.get(
-                "homework_metric_mode", "pct_correct"
-            ).strip()
+
+            # ── Determine attendance ─────────────────────────────────────
+            attendance_by_student: dict[int, str] = {}
+            for student in students:
+                status = request.form.get(f"attendance_status_{student.id}", "present")
+                if status not in {"present", "absent", "excused", "late"}:
+                    status = "present"
+                attendance_by_student[student.id] = status
+            absent_ids = {
+                sid for sid, st in attendance_by_student.items() if st in {"absent", "excused"}
+            }
+            present_students = [s for s in students if s.id not in absent_ids]
 
             try:
                 win_weight = float(win_weight_raw) if win_weight_raw else DEFAULT_WIN_WEIGHT
-                homework_weight = (
-                    float(homework_weight_raw)
-                    if homework_weight_raw
-                    else DEFAULT_HOMEWORK_WEIGHT
-                )
-                homework_total_questions = parse_non_negative_int(
-                    homework_total_raw, "Homework total questions"
-                )
+                if win_weight < 0:
+                    raise ValueError("Win weight must be zero or greater.")
+                if len(present_students) < 2:
+                    raise ValueError("At least two present students are required to create matches.")
             except ValueError as exc:
-                error = str(exc) or "Weights must be numeric."
+                error = str(exc)
             else:
-                if missing_homework_policy not in {"zero", "exclude", "penalty"}:
-                    missing_homework_policy = "zero"
-                if homework_metric_mode not in VALID_HOMEWORK_METRIC_MODES:
-                    homework_metric_mode = "pct_correct"
-                homework_metric_mode = canonicalize_homework_metric_mode(homework_metric_mode)
-
-                attendance_by_student: dict[int, str] = {}
-                for student in students:
-                    status = request.form.get(f"attendance_status_{student.id}", "present")
-                    if status not in {"present", "absent", "excused", "late"}:
-                        status = "present"
-                    attendance_by_student[student.id] = status
-
-                absent_ids = {
-                    student_id
-                    for student_id, status in attendance_by_student.items()
-                    if status in {"absent", "excused"}
-                }
-                present_students = [
-                    student for student in students if student.id not in absent_ids
-                ]
-
-                if win_weight < 0 or homework_weight < 0:
-                    error = "Weights must be zero or greater."
-                elif len(present_students) < 2:
-                    error = "At least two present students are required to create matches."
-                else:
+                # ── Parse per-assignment-type weights ────────────────────
+                active_at_configs: list[dict] = []
+                for at in assignment_types:
+                    raw_w = request.form.get(f"rat_{at.id}_weight", "").strip()
+                    raw_q = request.form.get(f"rat_{at.id}_total_questions", "").strip()
                     try:
-                        logger.info(
-                            "Round generation started",
-                            extra={
-                                "phase": "pairing",
-                                "classroom_id": classroom_id,
-                                "teacher_id": teacher.id,
-                                "present_student_count": len(present_students),
-                                "absent_student_count": len(absent_ids),
-                            },
-                        )
-                        normalized_win, normalized_homework = normalize_weights(
-                            win_weight, homework_weight
-                        )
-                        matches, unpaired, df, id_order = generate_matches_for_students(
-                            present_students,
-                            normalized_win,
-                            normalized_homework,
-                            homework_metric_mode,
-                        )
+                        at_weight = float(raw_w) if raw_w else 0.0
+                        at_total_q = parse_non_negative_int(raw_q, f"{at.name} total questions") if raw_q else 0
                     except ValueError as exc:
-                        error = str(exc)
-                    else:
-                        # Determine the next sequential round number for this classroom.
-                        max_rn = (
-                            db.query(func.max(Round.round_number))
-                            .filter(Round.classroom_id == classroom_id)
-                            .scalar()
-                        )
-                        next_round_number = (max_rn or 0) + 1
+                        error = f"{at.name}: {exc}"
+                        break
+                    if at_weight < 0:
+                        error = f"{at.name} weight must be zero or greater."
+                        break
+                    if at_weight > 0:
+                        active_at_configs.append({
+                            "at": at,
+                            "weight": at_weight,
+                            "total_questions": at_total_q,
+                        })
 
-                        round_record = Round(
-                            classroom_id=classroom_id,
-                            round_number=next_round_number,
-                            win_weight=int(normalized_win * 100),
-                            homework_weight=int(normalized_homework * 100),
-                            status="open",
-                            homework_total_questions=homework_total_questions,
-                            missing_homework_policy=missing_homework_policy,
-                            homework_metric_mode=homework_metric_mode,
-                        )
-                        db.add(round_record)
-                        db.flush()
+                if not error:
+                    try:
+                        if active_at_configs:
+                            # ── New assignment-type path ─────────────────────
+                            present_ids = [s.id for s in present_students]
+                            assignment_type_data = []
+                            for cfg in active_at_configs:
+                                at = cfg["at"]
+                                scores_qs = db.query(StudentAssignmentScore).filter(
+                                    StudentAssignmentScore.student_id.in_(present_ids),
+                                    StudentAssignmentScore.assignment_type_id == at.id,
+                                ).all()
+                                student_scores = {sc.student_id: (sc.correct, sc.incorrect) for sc in scores_qs}
+                                assignment_type_data.append({
+                                    "weight": cfg["weight"],
+                                    "metric_mode": at.metric_mode,
+                                    "student_scores": student_scores,
+                                })
+                            logger.info(
+                                "Round generation started",
+                                extra={
+                                    "phase": "pairing",
+                                    "classroom_id": classroom_id,
+                                    "teacher_id": teacher.id,
+                                    "present_student_count": len(present_students),
+                                    "absent_student_count": len(absent_ids),
+                                },
+                            )
+                            matches, unpaired, df, id_order = generate_matches_for_students(
+                                present_students,
+                                win_weight,
+                                assignment_type_data=assignment_type_data,
+                            )
+                            # Determine next round number.
+                            max_rn = (
+                                db.query(func.max(Round.round_number))
+                                .filter(Round.classroom_id == classroom_id)
+                                .scalar()
+                            )
+                            next_round_number = (max_rn or 0) + 1
+                            # Sum assignment weights for the legacy homework_weight field.
+                            total_at_weight = sum(c["weight"] for c in active_at_configs)
+                            all_weights = [win_weight] + [c["weight"] for c in active_at_configs]
+                            norm = normalize_weights(all_weights)
+                            round_record = Round(
+                                classroom_id=classroom_id,
+                                round_number=next_round_number,
+                                win_weight=int(norm[0] * 100),
+                                homework_weight=0,  # superseded by RoundAssignmentType
+                                status="open",
+                                homework_total_questions=0,
+                                missing_homework_policy="zero",
+                                homework_metric_mode="pct_correct",
+                            )
+                            db.add(round_record)
+                            db.flush()
 
-                        for student in students:
-                            status = attendance_by_student.get(student.id, "present")
-                            db.add(
-                                Attendance(
+                            for student in students:
+                                db.add(Attendance(
                                     round_id=round_record.id,
                                     student_id=student.id,
-                                    status=status,
-                                )
+                                    status=attendance_by_student.get(student.id, "present"),
+                                ))
+
+                            # Create RoundAssignmentType records.
+                            for cfg in active_at_configs:
+                                db.add(RoundAssignmentType(
+                                    round_id=round_record.id,
+                                    assignment_type_id=cfg["at"].id,
+                                    weight=int(cfg["weight"]),
+                                    total_questions=cfg["total_questions"],
+                                ))
+
+                            # Create match records with AssignmentEntry per active type.
+                            match_records = create_match_records(
+                                present_students, matches, unpaired, df, id_order
                             )
+                            for record in match_records:
+                                record.round_id = round_record.id
+                                db.add(record)
+                                db.flush()  # get record.id
+                                for cfg in active_at_configs:
+                                    db.add(AssignmentEntry(
+                                        match_id=record.id,
+                                        assignment_type_id=cfg["at"].id,
+                                    ))
 
-                        match_records = create_match_records(
-                            present_students, matches, unpaired, df, id_order
-                        )
-                        for record in match_records:
-                            record.round_id = round_record.id
-                            record.homework_entry = HomeworkEntry()
-                            db.add(record)
-
-                        logger.info(
-                            "Round generation completed",
-                            extra={
-                                "phase": "insert",
-                                "classroom_id": classroom_id,
-                                "round_id": round_record.id,
-                                "teacher_id": teacher.id,
-                                "match_count": len(match_records),
-                                "paired_match_count": len(matches),
-                                "bye_count": len(unpaired),
-                            },
-                        )
-
-                        return redirect(
-                            url_for(
-                                "round_results",
+                            logger.info(
+                                "Round generation completed",
+                                extra={
+                                    "phase": "insert",
+                                    "classroom_id": classroom_id,
+                                    "round_id": round_record.id,
+                                    "teacher_id": teacher.id,
+                                    "match_count": len(match_records),
+                                    "paired_match_count": len(matches),
+                                    "bye_count": len(unpaired),
+                                },
+                            )
+                            return redirect(
+                                url_for("round_results", classroom_id=classroom_id, round_id=round_record.id)
+                            )
+                        else:
+                            # ── Legacy homework path (no active assignment types) ──
+                            homework_weight_raw = request.form.get("homework_weight", "").strip()
+                            homework_total_raw = request.form.get("homework_total_questions", "").strip()
+                            missing_homework_policy = request.form.get("missing_homework_policy", "zero").strip()
+                            homework_metric_mode = request.form.get("homework_metric_mode", "pct_correct").strip()
+                            homework_weight = float(homework_weight_raw) if homework_weight_raw else DEFAULT_HOMEWORK_WEIGHT
+                            homework_total_questions = parse_non_negative_int(homework_total_raw, "Homework total questions") if homework_total_raw else 0
+                            if missing_homework_policy not in {"zero", "exclude", "penalty"}:
+                                missing_homework_policy = "zero"
+                            if homework_metric_mode not in VALID_HOMEWORK_METRIC_MODES:
+                                homework_metric_mode = "pct_correct"
+                            homework_metric_mode = canonicalize_homework_metric_mode(homework_metric_mode)
+                            if homework_weight < 0:
+                                raise ValueError("Homework weight must be zero or greater.")
+                            normalized_win, normalized_homework = normalize_weights(win_weight, homework_weight)
+                            logger.info(
+                                "Round generation started",
+                                extra={
+                                    "phase": "pairing",
+                                    "classroom_id": classroom_id,
+                                    "teacher_id": teacher.id,
+                                    "present_student_count": len(present_students),
+                                    "absent_student_count": len(absent_ids),
+                                },
+                            )
+                            matches, unpaired, df, id_order = generate_matches_for_students(
+                                present_students,
+                                normalized_win,
+                                normalized_homework,
+                                homework_metric_mode,
+                            )
+                            max_rn = (
+                                db.query(func.max(Round.round_number))
+                                .filter(Round.classroom_id == classroom_id)
+                                .scalar()
+                            )
+                            next_round_number = (max_rn or 0) + 1
+                            round_record = Round(
                                 classroom_id=classroom_id,
-                                round_id=round_record.id,
+                                round_number=next_round_number,
+                                win_weight=int(normalized_win * 100),
+                                homework_weight=int(normalized_homework * 100),
+                                status="open",
+                                homework_total_questions=homework_total_questions,
+                                missing_homework_policy=missing_homework_policy,
+                                homework_metric_mode=homework_metric_mode,
                             )
-                        )
+                            db.add(round_record)
+                            db.flush()
+
+                            for student in students:
+                                db.add(Attendance(
+                                    round_id=round_record.id,
+                                    student_id=student.id,
+                                    status=attendance_by_student.get(student.id, "present"),
+                                ))
+
+                            match_records = create_match_records(
+                                present_students, matches, unpaired, df, id_order
+                            )
+                            for record in match_records:
+                                record.round_id = round_record.id
+                                record.homework_entry = HomeworkEntry()
+                                db.add(record)
+
+                            logger.info(
+                                "Round generation completed",
+                                extra={
+                                    "phase": "insert",
+                                    "classroom_id": classroom_id,
+                                    "round_id": round_record.id,
+                                    "teacher_id": teacher.id,
+                                    "match_count": len(match_records),
+                                    "paired_match_count": len(matches),
+                                    "bye_count": len(unpaired),
+                                },
+                            )
+                            return redirect(
+                                url_for("round_results", classroom_id=classroom_id, round_id=round_record.id)
+                            )
+                    except ValueError as exc:
+                        error = str(exc)
 
     return render_template(
         "new_round.html",
         classroom=classroom,
         students=students,
+        assignment_types=assignment_types,
         error=error,
         default_win_weight=DEFAULT_WIN_WEIGHT,
         default_homework_weight=DEFAULT_HOMEWORK_WEIGHT,
@@ -815,7 +1029,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
 
         matches = (
             db.query(Match)
-            .options(selectinload(Match.homework_entry))
+            .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
             .filter(Match.round_id == round_id)
             .order_by(Match.id)
             .all()
@@ -1001,11 +1215,11 @@ def round_results(classroom_id: int, round_id: int) -> str:
                 all_matches = (
                     db.query(Match)
                     .join(Round)
-                    .options(selectinload(Match.homework_entry))
+                    .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
                     .filter(Round.classroom_id == classroom_id)
                     .all()
                 )
-                recalculate_totals(students, all_matches)
+                recalculate_totals(students, all_matches, db=db)
                 # Flush inside this guarded block so DB write errors render
                 # as recoverable form errors instead of bubbling as 500s at commit.
                 db.flush()
@@ -1036,7 +1250,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
                 round_record = db.get(Round, round_id)
                 matches = (
                     db.query(Match)
-                    .options(selectinload(Match.homework_entry))
+                    .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
                     .filter(Match.round_id == round_id)
                     .order_by(Match.id)
                     .all()
@@ -1124,7 +1338,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
         if eq_round:
             eq_matches = (
                 db.query(Match)
-                .options(selectinload(Match.homework_entry))
+                .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
                 .filter(Match.round_id == eq_round.id)
                 .order_by(Match.id)
                 .all()
@@ -1167,6 +1381,19 @@ def round_results(classroom_id: int, round_id: int) -> str:
                 prev_round_absent_ids.add(rec.student_id)
                 prev_round_absent_names.append(_student_name(rec.student_id))
 
+        # Load assignment types active for this round.
+        round_assignment_types = (
+            db.query(RoundAssignmentType)
+            .options(selectinload(RoundAssignmentType.assignment_type))
+            .filter(RoundAssignmentType.round_id == round_id)
+            .order_by(RoundAssignmentType.id)
+            .all()
+        )
+        # Build a nested map: match_id -> {assignment_type_id -> AssignmentEntry}
+        assignment_entries_map: dict[int, dict[int, AssignmentEntry]] = {}
+        for match in matches:
+            assignment_entries_map[match.id] = {e.assignment_type_id: e for e in match.assignment_entries}
+
     logger.info(
         "Round results rendered",
         extra={
@@ -1198,6 +1425,8 @@ def round_results(classroom_id: int, round_id: int) -> str:
         eq_absences=eq_absences,
         prev_round_absent_ids=list(prev_round_absent_ids),
         prev_round_absent_names=prev_round_absent_names,
+        round_assignment_types=round_assignment_types,
+        assignment_entries_map=assignment_entries_map,
         active_nav="dashboard",
         breadcrumbs=[
             {"label": "Dashboard", "url": url_for("dashboard")},
@@ -1280,6 +1509,7 @@ def autosave_round_field(classroom_id: int, round_id: int):
         field = request.form.get("field", "").strip()
         value = request.form.get("value", "")
         match_id_raw = request.form.get("match_id", "")
+        assignment_type_id_raw = request.form.get("assignment_type_id", "").strip()
 
         try:
             if field in {"homework_total_questions"}:
@@ -1309,107 +1539,180 @@ def autosave_round_field(classroom_id: int, round_id: int):
                     raise ValueError("Match ID required.")
                 match = (
                     db.query(Match)
-                    .options(selectinload(Match.homework_entry))
+                    .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
                     .filter(Match.id == int(match_id_raw), Match.round_id == round_id)
                     .first()
                 )
                 if not match:
                     raise ValueError("Match not found.")
 
-                homework_entry = match.homework_entry
-                if not homework_entry:
-                    homework_entry = HomeworkEntry(match_id=match.id)
-                    db.add(homework_entry)
-                    match.homework_entry = homework_entry
+                # ── Determine whether to use AssignmentEntry or legacy HomeworkEntry ──
+                if assignment_type_id_raw and assignment_type_id_raw.isdigit():
+                    # New AssignmentEntry path
+                    at_id = int(assignment_type_id_raw)
+                    rat = (
+                        db.query(RoundAssignmentType)
+                        .options(selectinload(RoundAssignmentType.assignment_type))
+                        .filter(
+                            RoundAssignmentType.round_id == round_id,
+                            RoundAssignmentType.assignment_type_id == at_id,
+                        )
+                        .first()
+                    )
+                    if not rat:
+                        raise ValueError("Assignment type not configured for this round.")
+                    entry = next(
+                        (e for e in match.assignment_entries if e.assignment_type_id == at_id),
+                        None,
+                    )
+                    if not entry:
+                        entry = AssignmentEntry(match_id=match.id, assignment_type_id=at_id)
+                        db.add(entry)
 
-                if field == "result":
-                    if value not in {"white", "black", "tie", "bye", ""}:
-                        raise ValueError("Invalid result.")
-                    if match.black_student_id is None:
-                        value = "bye"
-                    old = match.result or ""
-                    match.result = value or None
-                    log_field_change(
-                        db, teacher.id, classroom_id, round_id, match.id, "result", old, match.result or ""
-                    )
-                elif field == "notes":
-                    old = match.notes or ""
-                    match.notes = value.strip()
-                    log_field_change(
-                        db, teacher.id, classroom_id, round_id, match.id, "notes", old, match.notes
-                    )
-                elif field == "notation_submitted_white":
-                    checked = value == "true"
-                    old = str(match.notation_submitted_white)
-                    match.notation_submitted_white = checked
-                    log_field_change(
-                        db,
-                        teacher.id,
-                        classroom_id,
-                        round_id,
-                        match.id,
-                        "notation_submitted_white",
-                        old,
-                        str(checked),
-                    )
-                elif field == "notation_submitted_black":
-                    checked = value == "true" and match.black_student_id is not None
-                    old = str(match.notation_submitted_black)
-                    match.notation_submitted_black = checked
-                    log_field_change(
-                        db,
-                        teacher.id,
-                        classroom_id,
-                        round_id,
-                        match.id,
-                        "notation_submitted_black",
-                        old,
-                        str(checked),
-                    )
-                elif field in {"white_entered_correct", "black_entered_correct"}:
-                    total_questions = int(round_record.homework_total_questions or 0)
-                    if field == "white_entered_correct":
-                        correct, wrong, submitted, pct_wrong = apply_homework_policy(
-                            value,
-                            total_questions,
-                            round_record.missing_homework_policy,
-                        )
-                        homework_entry.white_correct = correct
-                        homework_entry.white_incorrect = wrong
-                        homework_entry.white_submitted = submitted
-                        homework_entry.white_pct_wrong = pct_wrong
-                    else:
-                        correct, wrong, submitted, pct_wrong = apply_homework_policy(
-                            value,
-                            total_questions,
-                            round_record.missing_homework_policy,
-                        )
+                    if field == "result":
+                        if value not in {"white", "black", "tie", "bye", ""}:
+                            raise ValueError("Invalid result.")
                         if match.black_student_id is None:
-                            correct, wrong, submitted, pct_wrong = (0, 0, False, 0.0)
-                        homework_entry.black_correct = correct
-                        homework_entry.black_incorrect = wrong
-                        homework_entry.black_submitted = submitted
-                        homework_entry.black_pct_wrong = pct_wrong
-                elif field in {"white_exempt", "black_exempt"}:
-                    exempt_val = value == "true"
-                    if field == "white_exempt":
-                        homework_entry.white_exempt = exempt_val
+                            value = "bye"
+                        old = match.result or ""
+                        match.result = value or None
+                        log_field_change(db, teacher.id, classroom_id, round_id, match.id, "result", old, match.result or "")
+                    elif field == "notes":
+                        old = match.notes or ""
+                        match.notes = value.strip()
+                        log_field_change(db, teacher.id, classroom_id, round_id, match.id, "notes", old, match.notes)
+                    elif field == "notation_submitted_white":
+                        checked = value == "true"
+                        old = str(match.notation_submitted_white)
+                        match.notation_submitted_white = checked
+                        log_field_change(db, teacher.id, classroom_id, round_id, match.id, "notation_submitted_white", old, str(checked))
+                    elif field == "notation_submitted_black":
+                        checked = value == "true" and match.black_student_id is not None
+                        old = str(match.notation_submitted_black)
+                        match.notation_submitted_black = checked
+                        log_field_change(db, teacher.id, classroom_id, round_id, match.id, "notation_submitted_black", old, str(checked))
+                    elif field in {"white_entered_correct", "black_entered_correct"}:
+                        total_questions = int(rat.total_questions or 0)
+                        missing_policy = (rat.assignment_type.missing_policy if rat.assignment_type else "zero")
+                        if field == "white_entered_correct":
+                            correct, wrong, submitted, pct_wrong = apply_homework_policy(value, total_questions, missing_policy)
+                            entry.white_correct = correct
+                            entry.white_incorrect = wrong
+                            entry.white_submitted = submitted
+                            entry.white_pct_wrong = pct_wrong
+                        else:
+                            correct, wrong, submitted, pct_wrong = apply_homework_policy(value, total_questions, missing_policy)
+                            if match.black_student_id is None:
+                                correct, wrong, submitted, pct_wrong = (0, 0, False, 0.0)
+                            entry.black_correct = correct
+                            entry.black_incorrect = wrong
+                            entry.black_submitted = submitted
+                            entry.black_pct_wrong = pct_wrong
+                    elif field in {"white_exempt", "black_exempt"}:
+                        exempt_val = value == "true"
+                        if field == "white_exempt":
+                            entry.white_exempt = exempt_val
+                        else:
+                            if match.black_student_id is not None:
+                                entry.black_exempt = exempt_val
                     else:
-                        if match.black_student_id is not None:
-                            homework_entry.black_exempt = exempt_val
+                        raise ValueError("Unsupported autosave field.")
                 else:
-                    raise ValueError("Unsupported autosave field.")
+                    # Legacy HomeworkEntry path
+                    homework_entry = match.homework_entry
+                    if not homework_entry:
+                        homework_entry = HomeworkEntry(match_id=match.id)
+                        db.add(homework_entry)
+                        match.homework_entry = homework_entry
+
+                    if field == "result":
+                        if value not in {"white", "black", "tie", "bye", ""}:
+                            raise ValueError("Invalid result.")
+                        if match.black_student_id is None:
+                            value = "bye"
+                        old = match.result or ""
+                        match.result = value or None
+                        log_field_change(
+                            db, teacher.id, classroom_id, round_id, match.id, "result", old, match.result or ""
+                        )
+                    elif field == "notes":
+                        old = match.notes or ""
+                        match.notes = value.strip()
+                        log_field_change(
+                            db, teacher.id, classroom_id, round_id, match.id, "notes", old, match.notes
+                        )
+                    elif field == "notation_submitted_white":
+                        checked = value == "true"
+                        old = str(match.notation_submitted_white)
+                        match.notation_submitted_white = checked
+                        log_field_change(
+                            db,
+                            teacher.id,
+                            classroom_id,
+                            round_id,
+                            match.id,
+                            "notation_submitted_white",
+                            old,
+                            str(checked),
+                        )
+                    elif field == "notation_submitted_black":
+                        checked = value == "true" and match.black_student_id is not None
+                        old = str(match.notation_submitted_black)
+                        match.notation_submitted_black = checked
+                        log_field_change(
+                            db,
+                            teacher.id,
+                            classroom_id,
+                            round_id,
+                            match.id,
+                            "notation_submitted_black",
+                            old,
+                            str(checked),
+                        )
+                    elif field in {"white_entered_correct", "black_entered_correct"}:
+                        total_questions = int(round_record.homework_total_questions or 0)
+                        if field == "white_entered_correct":
+                            correct, wrong, submitted, pct_wrong = apply_homework_policy(
+                                value,
+                                total_questions,
+                                round_record.missing_homework_policy,
+                            )
+                            homework_entry.white_correct = correct
+                            homework_entry.white_incorrect = wrong
+                            homework_entry.white_submitted = submitted
+                            homework_entry.white_pct_wrong = pct_wrong
+                        else:
+                            correct, wrong, submitted, pct_wrong = apply_homework_policy(
+                                value,
+                                total_questions,
+                                round_record.missing_homework_policy,
+                            )
+                            if match.black_student_id is None:
+                                correct, wrong, submitted, pct_wrong = (0, 0, False, 0.0)
+                            homework_entry.black_correct = correct
+                            homework_entry.black_incorrect = wrong
+                            homework_entry.black_submitted = submitted
+                            homework_entry.black_pct_wrong = pct_wrong
+                    elif field in {"white_exempt", "black_exempt"}:
+                        exempt_val = value == "true"
+                        if field == "white_exempt":
+                            homework_entry.white_exempt = exempt_val
+                        else:
+                            if match.black_student_id is not None:
+                                homework_entry.black_exempt = exempt_val
+                    else:
+                        raise ValueError("Unsupported autosave field.")
                 match.updated_at = datetime.utcnow()
 
             all_students = db.query(Student).filter(Student.classroom_id == classroom_id).all()
             all_matches = (
                 db.query(Match)
                 .join(Round)
-                .options(selectinload(Match.homework_entry))
+                .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
                 .filter(Round.classroom_id == classroom_id)
                 .all()
             )
-            recalculate_totals(all_students, all_matches)
+            recalculate_totals(all_students, all_matches, db=db)
             db.flush()
             return jsonify({"saved": True, "updated_at": datetime.utcnow().isoformat()})
         except ValueError as exc:
@@ -1467,33 +1770,57 @@ def exempt_absent_homework(classroom_id: int, round_id: int):
         exempted = 0
         matches = (
             db.query(Match)
-            .options(selectinload(Match.homework_entry))
+            .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
             .filter(Match.round_id == round_id)
             .all()
         )
+        round_assignment_types = (
+            db.query(RoundAssignmentType)
+            .filter(RoundAssignmentType.round_id == round_id)
+            .all()
+        )
         for match in matches:
+            # Legacy HomeworkEntry exemption.
             hw = match.homework_entry
             if not hw:
                 hw = HomeworkEntry(match_id=match.id)
                 db.add(hw)
                 match.homework_entry = hw
 
+            newly_exempted_white = False
+            newly_exempted_black = False
             if match.white_student_id in absent_ids and not hw.white_exempt:
                 hw.white_exempt = True
+                newly_exempted_white = True
                 exempted += 1
             if match.black_student_id and match.black_student_id in absent_ids and not hw.black_exempt:
                 hw.black_exempt = True
+                newly_exempted_black = True
                 exempted += 1
+
+            # New AssignmentEntry exemptions (one per active type).
+            entry_map = {e.assignment_type_id: e for e in match.assignment_entries}
+            for rat in round_assignment_types:
+                at_id = rat.assignment_type_id
+                entry = entry_map.get(at_id)
+                if not entry:
+                    entry = AssignmentEntry(match_id=match.id, assignment_type_id=at_id)
+                    db.add(entry)
+                    entry_map[at_id] = entry
+                if match.white_student_id in absent_ids and not entry.white_exempt:
+                    entry.white_exempt = True
+                if match.black_student_id and match.black_student_id in absent_ids and not entry.black_exempt:
+                    entry.black_exempt = True
 
         all_students = db.query(Student).filter(Student.classroom_id == classroom_id).all()
         all_matches = (
             db.query(Match)
             .join(Round)
-            .options(selectinload(Match.homework_entry))
+            .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
             .filter(Round.classroom_id == classroom_id)
             .all()
         )
-        recalculate_totals(all_students, all_matches)
+        recalculate_totals(all_students, all_matches, db=db)
         db.flush()
         return jsonify({"ok": True, "exempted": exempted})
 
@@ -1534,7 +1861,7 @@ def exceptions_queue(classroom_id: int) -> str:
 
         matches = (
             db.query(Match)
-            .options(selectinload(Match.homework_entry))
+            .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
             .filter(Match.round_id == round_record.id)
             .order_by(Match.id)
             .all()
@@ -1604,7 +1931,7 @@ def export_round(classroom_id: int, round_id: int):
 
         matches = (
             db.query(Match)
-            .options(selectinload(Match.homework_entry))
+            .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
             .filter(Match.round_id == round_id)
             .order_by(Match.id)
             .all()
@@ -1694,11 +2021,11 @@ def delete_round(classroom_id: int, round_id: int):
         remaining_matches = (
             db.query(Match)
             .join(Round)
-            .options(selectinload(Match.homework_entry))
+            .options(selectinload(Match.homework_entry), selectinload(Match.assignment_entries))
             .filter(Round.classroom_id == classroom_id, Match.round_id != round_id)
             .all()
         )
-        recalculate_totals(students, remaining_matches)
+        recalculate_totals(students, remaining_matches, db=db)
         db.delete(round_record)
 
     return redirect(

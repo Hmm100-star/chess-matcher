@@ -1,12 +1,28 @@
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
 
-def normalize_weights(win_weight: float, homework_weight: float) -> Tuple[float, float]:
-    """Normalise weights to sum to 1, ensuring they remain positive."""
+def normalize_weights(
+    win_weight: Union[float, List[float]],
+    homework_weight: Optional[float] = None,
+) -> Union[Tuple[float, float], List[float]]:
+    """Normalise weights to sum to 1, ensuring they remain positive.
+
+    Two calling conventions are supported:
+      - Legacy two-argument form: normalize_weights(win_w, hw_w) -> (float, float)
+      - New list form: normalize_weights([win_w, w1, w2, ...]) -> [float, float, ...]
+    """
+    if isinstance(win_weight, (list, tuple)):
+        weights: List[float] = [float(w) for w in win_weight]
+        total = sum(weights)
+        if total <= 0:
+            raise ValueError("Weights must sum to a positive value.")
+        return [w / total for w in weights]
+    # Legacy two-argument form
+    assert homework_weight is not None, "homework_weight required in legacy two-argument form"
     total = win_weight + homework_weight
     if total <= 0:
         raise ValueError("Win and homework weights must sum to a positive value.")

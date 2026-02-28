@@ -165,7 +165,7 @@
             </div>
           </div>
 
-          <div class="mt-4 grid gap-4 md:grid-cols-4">
+          <div class="mt-4 grid gap-4 {% if round_assignment_types %}md:grid-cols-2{% else %}md:grid-cols-4{% endif %}">
             <div>
               <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Result</label>
               {% if black is none %}
@@ -184,62 +184,67 @@
                 </select>
               {% endif %}
             </div>
-            <div>
-              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">White correct</label>
-              {% set white_exempt = match.homework_entry and match.homework_entry.white_exempt %}
-              <input
-                name="white_entered_correct_{{ match.id }}"
-                type="number"
-                min="0"
-                value="{{ match.homework_entry.white_correct if match.homework_entry and match.homework_entry.white_submitted else '' }}"
-                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900{% if white_exempt %} opacity-40 pointer-events-none{% endif %}"
-                data-match-id="{{ match.id }}"
-                data-field="white_entered_correct"
-                placeholder="Blank = missing"
-                {% if white_exempt %}disabled{% endif %}
-              />
-              <div class="mt-1 flex items-center gap-2">
-                <p class="text-xs text-gray-500">Wrong: {{ match.homework_entry.white_incorrect if match.homework_entry else 0 }}</p>
-                <button
-                  type="button"
-                  class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
-                    {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if white_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+
+            {% if not round_assignment_types %}
+              {# ── Legacy HomeworkEntry columns ───────────────────────────── #}
+              <div>
+                <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">White correct</label>
+                {% set white_exempt = match.homework_entry and match.homework_entry.white_exempt %}
+                <input
+                  name="white_entered_correct_{{ match.id }}"
+                  type="number"
+                  min="0"
+                  value="{{ match.homework_entry.white_correct if match.homework_entry and match.homework_entry.white_submitted else '' }}"
+                  class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900{% if white_exempt %} opacity-40 pointer-events-none{% endif %}"
                   data-match-id="{{ match.id }}"
-                  data-field="white_exempt"
-                  data-active="{{ 'true' if white_exempt else 'false' }}"
-                  data-student-id="{{ match.white_student_id }}"
-                >{{ 'Exempt ✓' if white_exempt else 'Exempt' }}</button>
-              </div>
-            </div>
-            <div>
-              <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Black correct</label>
-              {% set black_exempt = match.homework_entry and match.homework_entry.black_exempt %}
-              <input
-                name="black_entered_correct_{{ match.id }}"
-                type="number"
-                min="0"
-                value="{{ match.homework_entry.black_correct if match.homework_entry and match.homework_entry.black_submitted else '' }}"
-                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900{% if black_exempt %} opacity-40 pointer-events-none{% endif %}"
-                data-match-id="{{ match.id }}"
-                data-field="black_entered_correct"
-                placeholder="Blank = missing"
-                {% if black is none or black_exempt %}disabled{% endif %}
-              />
-              <div class="mt-1 flex items-center gap-2">
-                <p class="text-xs text-gray-500">Wrong: {{ match.homework_entry.black_incorrect if match.homework_entry else 0 }}</p>
-                {% if black is not none %}
+                  data-field="white_entered_correct"
+                  placeholder="Blank = missing"
+                  {% if white_exempt %}disabled{% endif %}
+                />
+                <div class="mt-1 flex items-center gap-2">
+                  <p class="text-xs text-gray-500">Wrong: {{ match.homework_entry.white_incorrect if match.homework_entry else 0 }}</p>
                   <button
                     type="button"
                     class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
-                      {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if black_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+                      {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if white_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
                     data-match-id="{{ match.id }}"
-                    data-field="black_exempt"
-                    data-active="{{ 'true' if black_exempt else 'false' }}"
-                    data-student-id="{{ match.black_student_id }}"
-                  >{{ 'Exempt ✓' if black_exempt else 'Exempt' }}</button>
-                {% endif %}
+                    data-field="white_exempt"
+                    data-active="{{ 'true' if white_exempt else 'false' }}"
+                    data-student-id="{{ match.white_student_id }}"
+                  >{{ 'Exempt ✓' if white_exempt else 'Exempt' }}</button>
+                </div>
               </div>
-            </div>
+              <div>
+                <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Black correct</label>
+                {% set black_exempt = match.homework_entry and match.homework_entry.black_exempt %}
+                <input
+                  name="black_entered_correct_{{ match.id }}"
+                  type="number"
+                  min="0"
+                  value="{{ match.homework_entry.black_correct if match.homework_entry and match.homework_entry.black_submitted else '' }}"
+                  class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900{% if black_exempt %} opacity-40 pointer-events-none{% endif %}"
+                  data-match-id="{{ match.id }}"
+                  data-field="black_entered_correct"
+                  placeholder="Blank = missing"
+                  {% if black is none or black_exempt %}disabled{% endif %}
+                />
+                <div class="mt-1 flex items-center gap-2">
+                  <p class="text-xs text-gray-500">Wrong: {{ match.homework_entry.black_incorrect if match.homework_entry else 0 }}</p>
+                  {% if black is not none %}
+                    <button
+                      type="button"
+                      class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
+                        {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if black_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+                      data-match-id="{{ match.id }}"
+                      data-field="black_exempt"
+                      data-active="{{ 'true' if black_exempt else 'false' }}"
+                      data-student-id="{{ match.black_student_id }}"
+                    >{{ 'Exempt ✓' if black_exempt else 'Exempt' }}</button>
+                  {% endif %}
+                </div>
+              </div>
+            {% endif %}
+
             <div>
               <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Notation</label>
               <div class="mt-2 space-y-2 text-sm">
@@ -272,6 +277,78 @@
               </div>
             </div>
           </div>
+
+          {# ── Per-assignment-type score entry (new rounds) ─────────────── #}
+          {% if round_assignment_types %}
+            {% for rat in round_assignment_types %}
+              {% set at = rat.assignment_type %}
+              {% set entries = assignment_entries_map.get(match.id, {}) %}
+              {% set entry = entries.get(at.id) %}
+              {% set w_exempt = entry and entry.white_exempt %}
+              {% set b_exempt = entry and entry.black_exempt %}
+              <div class="mt-3 rounded-xl border border-purple-100 bg-purple-50/30 p-3 dark:border-purple-900/30 dark:bg-purple-900/10">
+                <p class="mb-2 text-xs font-semibold text-purple-700 dark:text-purple-400">{{ at.name }}</p>
+                <div class="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label class="text-xs font-medium text-gray-600 dark:text-gray-400">White correct</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value="{{ entry.white_correct if entry and entry.white_submitted else '' }}"
+                      class="autosave-match mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900{% if w_exempt %} opacity-40 pointer-events-none{% endif %}"
+                      data-match-id="{{ match.id }}"
+                      data-field="white_entered_correct"
+                      data-assignment-type-id="{{ at.id }}"
+                      placeholder="Blank = missing"
+                      {% if w_exempt %}disabled{% endif %}
+                    />
+                    <div class="mt-1 flex items-center gap-2">
+                      <p class="text-xs text-gray-500">Wrong: {{ entry.white_incorrect if entry else 0 }}</p>
+                      <button
+                        type="button"
+                        class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
+                          {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if w_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+                        data-match-id="{{ match.id }}"
+                        data-field="white_exempt"
+                        data-assignment-type-id="{{ at.id }}"
+                        data-active="{{ 'true' if w_exempt else 'false' }}"
+                        data-student-id="{{ match.white_student_id }}"
+                      >{{ 'Exempt ✓' if w_exempt else 'Exempt' }}</button>
+                    </div>
+                  </div>
+                  {% if black is not none %}
+                    <div>
+                      <label class="text-xs font-medium text-gray-600 dark:text-gray-400">Black correct</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value="{{ entry.black_correct if entry and entry.black_submitted else '' }}"
+                        class="autosave-match mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900{% if b_exempt %} opacity-40 pointer-events-none{% endif %}"
+                        data-match-id="{{ match.id }}"
+                        data-field="black_entered_correct"
+                        data-assignment-type-id="{{ at.id }}"
+                        placeholder="Blank = missing"
+                        {% if b_exempt %}disabled{% endif %}
+                      />
+                      <div class="mt-1 flex items-center gap-2">
+                        <p class="text-xs text-gray-500">Wrong: {{ entry.black_incorrect if entry else 0 }}</p>
+                        <button
+                          type="button"
+                          class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
+                            {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if b_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+                          data-match-id="{{ match.id }}"
+                          data-field="black_exempt"
+                          data-assignment-type-id="{{ at.id }}"
+                          data-active="{{ 'true' if b_exempt else 'false' }}"
+                          data-student-id="{{ match.black_student_id }}"
+                        >{{ 'Exempt ✓' if b_exempt else 'Exempt' }}</button>
+                      </div>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          {% endif %}
 
           <div class="mt-4">
             <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Notes</label>
@@ -470,7 +547,10 @@
           const matchId = el.dataset.matchId;
           const field = el.dataset.field;
           const value = el.dataset.type === 'checkbox' ? String(el.checked) : el.value;
-          debounceSave(`${field}-${matchId}`, { match_id: matchId, field, value });
+          const atId = el.dataset.assignmentTypeId || '';
+          const payload = { match_id: matchId, field, value };
+          if (atId) payload.assignment_type_id = atId;
+          debounceSave(`${field}-${matchId}-${atId}`, payload);
         });
       });
 
@@ -488,6 +568,7 @@
         btn.addEventListener('click', () => {
           const matchId = btn.dataset.matchId;
           const field = btn.dataset.field;
+          const atId = btn.dataset.assignmentTypeId || '';
           const isActive = btn.dataset.active === 'true';
           const newValue = !isActive;
 
@@ -502,19 +583,24 @@
           btn.classList.toggle('dark:bg-gray-700', !newValue);
           btn.classList.toggle('dark:text-gray-400', !newValue);
 
-          // Disable/enable the associated homework input
+          // Disable/enable the associated score input (scoped to same assignment type)
           const inputField = field === 'white_exempt' ? 'white_entered_correct' : 'black_entered_correct';
           const card = btn.closest('.match-card');
           if (card) {
-            const hw = card.querySelector(`[data-field="${inputField}"]`);
-            if (hw) {
-              hw.disabled = newValue;
-              hw.classList.toggle('opacity-40', newValue);
-              hw.classList.toggle('pointer-events-none', newValue);
+            const selector = atId
+              ? `[data-field="${inputField}"][data-assignment-type-id="${atId}"]`
+              : `[data-field="${inputField}"]:not([data-assignment-type-id])`;
+            const inp = card.querySelector(selector);
+            if (inp) {
+              inp.disabled = newValue;
+              inp.classList.toggle('opacity-40', newValue);
+              inp.classList.toggle('pointer-events-none', newValue);
             }
           }
 
-          save({ match_id: matchId, field, value: String(newValue) });
+          const payload = { match_id: matchId, field, value: String(newValue) };
+          if (atId) payload.assignment_type_id = atId;
+          save(payload);
         });
       });
 

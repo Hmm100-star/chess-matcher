@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Assignment Types · {{ classroom.name }}{% endblock %}
+{% block content %}
+  <div class="mx-auto max-w-3xl">
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold">Assignment Types</h1>
+        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+          Define assignment categories for <strong>{{ classroom.name }}</strong>.
+          Each type can have its own weight when generating pairings.
+        </p>
+      </div>
+      <a
+        href="{{ url_for('classroom_overview', classroom_id=classroom.id) }}"
+        class="inline-flex items-center gap-1.5 rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+      ><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>Back to class</a>
+    </div>
+
+    {% if error %}
+      <div class="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-900/20 dark:text-rose-300">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    {# ── Existing assignment types ────────────────────────────────────────── #}
+    <div class="rounded-3xl bg-white/90 p-6 shadow-lg dark:bg-gray-800/90">
+      <h2 class="text-lg font-semibold mb-4">Current types</h2>
+      {% if assignment_types %}
+        <div class="space-y-3">
+          {% for at in assignment_types %}
+            <div class="flex items-center justify-between rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/60">
+              <div>
+                <p class="font-semibold text-sm">{{ at.name }}</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Metric: {{ 'Percentage Correct' if at.metric_mode == 'pct_correct' else 'Total Correct' }}
+                  &middot;
+                  Missing: {{ {'zero': 'Count as 0%', 'exclude': 'Exclude', 'penalty': 'Penalty'}.get(at.missing_policy, at.missing_policy) }}
+                </p>
+              </div>
+              {% if at.name != 'Homework' %}
+                <form method="post" action="{{ url_for('delete_assignment_type', classroom_id=classroom.id, type_id=at.id) }}"
+                      onsubmit="return confirm('Delete assignment type \'{{ at.name }}\'? This cannot be undone if score data exists.');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <button
+                    type="submit"
+                    class="rounded-xl border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-900/20"
+                  >Delete</button>
+                </form>
+              {% else %}
+                <span class="rounded-xl border border-gray-200 px-3 py-1.5 text-xs text-gray-400 dark:border-gray-700">Default</span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-gray-500 dark:text-gray-400">No assignment types yet.</p>
+      {% endif %}
+    </div>
+
+    {# ── Add new assignment type ──────────────────────────────────────────── #}
+    <div class="mt-6 rounded-3xl bg-white/90 p-6 shadow-lg dark:bg-gray-800/90">
+      <h2 class="text-lg font-semibold mb-4">Add a new type</h2>
+      <form method="post" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+        <div>
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="at_name">Name</label>
+          <input
+            id="at_name"
+            name="name"
+            type="text"
+            placeholder="e.g. Tactics Sheet, Endgame Exercises"
+            required
+            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          />
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <div>
+            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="at_metric">Metric for pairing</label>
+            <select
+              id="at_metric"
+              name="metric_mode"
+              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+            >
+              <option value="pct_correct">Percentage Correct</option>
+              <option value="total_correct">Total Correct</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="at_policy">Missing submission policy</label>
+            <select
+              id="at_policy"
+              name="missing_policy"
+              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+            >
+              <option value="zero">Count as 0%</option>
+              <option value="exclude">Exclude from denominator</option>
+              <option value="penalty">Missing penalty</option>
+            </select>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          class="w-full rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-500"
+        >Add assignment type</button>
+      </form>
+    </div>
+
+    <p class="mt-4 text-xs text-gray-500 dark:text-gray-400">
+      Assignment types are shared across all rounds in this classroom. Configure per-round weights when creating a new round.
+    </p>
+  </div>
+{% endblock %}

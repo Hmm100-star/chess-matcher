@@ -30,6 +30,7 @@ class Classroom(Base):
     teacher = relationship("Teacher", back_populates="classrooms")
     students = relationship("Student", back_populates="classroom", cascade="all, delete-orphan")
     rounds = relationship("Round", back_populates="classroom", cascade="all, delete-orphan")
+    assignment_types = relationship("AssignmentType", back_populates="classroom", cascade="all, delete-orphan", order_by="AssignmentType.id")
 
 
 class Student(Base):
@@ -50,6 +51,7 @@ class Student(Base):
 
     classroom = relationship("Classroom", back_populates="students")
     attendance = relationship("Attendance", back_populates="student", cascade="all, delete-orphan")
+    assignment_scores = relationship("StudentAssignmentScore", back_populates="student", cascade="all, delete-orphan")
 
 
 class Round(Base):
@@ -71,6 +73,9 @@ class Round(Base):
     matches = relationship("Match", back_populates="round", cascade="all, delete-orphan")
     attendance_records = relationship(
         "Attendance", back_populates="round", cascade="all, delete-orphan"
+    )
+    round_assignment_types = relationship(
+        "RoundAssignmentType", back_populates="round", cascade="all, delete-orphan"
     )
 
 
@@ -105,6 +110,9 @@ class Match(Base):
     homework_entry = relationship(
         "HomeworkEntry", back_populates="match", uselist=False, cascade="all, delete-orphan"
     )
+    assignment_entries = relationship(
+        "AssignmentEntry", back_populates="match", cascade="all, delete-orphan"
+    )
 
 
 class HomeworkEntry(Base):
@@ -124,6 +132,79 @@ class HomeworkEntry(Base):
     black_exempt = Column(Boolean, default=False, nullable=False)
 
     match = relationship("Match", back_populates="homework_entry")
+
+
+class AssignmentType(Base):
+    """A teacher-defined assignment category (e.g. Homework, Tactics Sheet) scoped to a classroom."""
+    __tablename__ = "assignment_types"
+
+    id = Column(Integer, primary_key=True)
+    classroom_id = Column(Integer, ForeignKey("classrooms.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    metric_mode = Column(String(20), default="pct_correct", nullable=False)
+    missing_policy = Column(String(20), default="zero", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    classroom = relationship("Classroom", back_populates="assignment_types")
+    round_assignment_types = relationship(
+        "RoundAssignmentType", back_populates="assignment_type", cascade="all, delete-orphan"
+    )
+    assignment_entries = relationship(
+        "AssignmentEntry", back_populates="assignment_type", cascade="all, delete-orphan"
+    )
+    student_scores = relationship(
+        "StudentAssignmentScore", back_populates="assignment_type", cascade="all, delete-orphan"
+    )
+
+
+class RoundAssignmentType(Base):
+    """Junction: which assignment types are active for a round, with per-round weight and config."""
+    __tablename__ = "round_assignment_types"
+
+    id = Column(Integer, primary_key=True)
+    round_id = Column(Integer, ForeignKey("rounds.id"), nullable=False)
+    assignment_type_id = Column(Integer, ForeignKey("assignment_types.id"), nullable=False)
+    weight = Column(Integer, default=30, nullable=False)  # integer 0-100
+    total_questions = Column(Integer, default=0, nullable=False)
+
+    round = relationship("Round", back_populates="round_assignment_types")
+    assignment_type = relationship("AssignmentType", back_populates="round_assignment_types")
+
+
+class AssignmentEntry(Base):
+    """Per-match per-assignment-type score entry (generalisation of HomeworkEntry)."""
+    __tablename__ = "assignment_entries"
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False)
+    assignment_type_id = Column(Integer, ForeignKey("assignment_types.id"), nullable=False)
+    white_correct = Column(Integer, default=0, nullable=False)
+    white_incorrect = Column(Integer, default=0, nullable=False)
+    black_correct = Column(Integer, default=0, nullable=False)
+    black_incorrect = Column(Integer, default=0, nullable=False)
+    white_submitted = Column(Boolean, default=False, nullable=False)
+    black_submitted = Column(Boolean, default=False, nullable=False)
+    white_pct_wrong = Column(Float, default=0.0, nullable=False)
+    black_pct_wrong = Column(Float, default=0.0, nullable=False)
+    white_exempt = Column(Boolean, default=False, nullable=False)
+    black_exempt = Column(Boolean, default=False, nullable=False)
+
+    match = relationship("Match", back_populates="assignment_entries")
+    assignment_type = relationship("AssignmentType", back_populates="assignment_entries")
+
+
+class StudentAssignmentScore(Base):
+    """Cumulative correct/incorrect totals per student per assignment type (replaces Student.homework_correct/incorrect)."""
+    __tablename__ = "student_assignment_scores"
+
+    id = Column(Integer, primary_key=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    assignment_type_id = Column(Integer, ForeignKey("assignment_types.id"), nullable=False)
+    correct = Column(Integer, default=0, nullable=False)
+    incorrect = Column(Integer, default=0, nullable=False)
+
+    student = relationship("Student", back_populates="assignment_scores")
+    assignment_type = relationship("AssignmentType", back_populates="student_scores")
 
 
 class AuditLog(Base):

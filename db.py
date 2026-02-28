@@ -106,6 +106,43 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "new_value",
         "created_at",
     },
+    "assignment_types": {
+        "id",
+        "classroom_id",
+        "name",
+        "metric_mode",
+        "missing_policy",
+        "created_at",
+    },
+    "round_assignment_types": {
+        "id",
+        "round_id",
+        "assignment_type_id",
+        "weight",
+        "total_questions",
+    },
+    "assignment_entries": {
+        "id",
+        "match_id",
+        "assignment_type_id",
+        "white_correct",
+        "white_incorrect",
+        "black_correct",
+        "black_incorrect",
+        "white_submitted",
+        "black_submitted",
+        "white_pct_wrong",
+        "black_pct_wrong",
+        "white_exempt",
+        "black_exempt",
+    },
+    "student_assignment_scores": {
+        "id",
+        "student_id",
+        "assignment_type_id",
+        "correct",
+        "incorrect",
+    },
 }
 
 POSTGRES_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
@@ -142,6 +179,11 @@ POSTGRES_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
     "ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_round_id_fkey",
     "ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_match_id_fkey",
     "ALTER TABLE IF EXISTS audit_logs DROP CONSTRAINT IF EXISTS audit_logs_actor_teacher_id_fkey",
+    # Assignment types system
+    "CREATE TABLE IF NOT EXISTS assignment_types (id SERIAL PRIMARY KEY, classroom_id INTEGER NOT NULL REFERENCES classrooms(id) ON DELETE CASCADE, name VARCHAR(200) NOT NULL, metric_mode VARCHAR(20) NOT NULL DEFAULT 'pct_correct', missing_policy VARCHAR(20) NOT NULL DEFAULT 'zero', created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW())",
+    "CREATE TABLE IF NOT EXISTS round_assignment_types (id SERIAL PRIMARY KEY, round_id INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE, assignment_type_id INTEGER NOT NULL REFERENCES assignment_types(id) ON DELETE CASCADE, weight INTEGER NOT NULL DEFAULT 30, total_questions INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS assignment_entries (id SERIAL PRIMARY KEY, match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE, assignment_type_id INTEGER NOT NULL REFERENCES assignment_types(id) ON DELETE CASCADE, white_correct INTEGER NOT NULL DEFAULT 0, white_incorrect INTEGER NOT NULL DEFAULT 0, black_correct INTEGER NOT NULL DEFAULT 0, black_incorrect INTEGER NOT NULL DEFAULT 0, white_submitted BOOLEAN NOT NULL DEFAULT FALSE, black_submitted BOOLEAN NOT NULL DEFAULT FALSE, white_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0.0, black_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0.0, white_exempt BOOLEAN NOT NULL DEFAULT FALSE, black_exempt BOOLEAN NOT NULL DEFAULT FALSE)",
+    "CREATE TABLE IF NOT EXISTS student_assignment_scores (id SERIAL PRIMARY KEY, student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE, assignment_type_id INTEGER NOT NULL REFERENCES assignment_types(id) ON DELETE CASCADE, correct INTEGER NOT NULL DEFAULT 0, incorrect INTEGER NOT NULL DEFAULT 0, UNIQUE (student_id, assignment_type_id))",
 )
 
 
