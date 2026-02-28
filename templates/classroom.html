@@ -111,9 +111,18 @@
               <span class="text-xs text-gray-500">{{ round.created_at.strftime('%Y-%m-%d') }}</span>
             </div>
             <div class="mt-1 text-xs text-gray-500">Status: {{ round.status }}</div>
-            <div class="mt-2 flex flex-wrap gap-2">
+            <div class="mt-2 flex flex-wrap items-center gap-2">
               <a class="text-indigo-600 hover:underline" href="{{ url_for('round_results', classroom_id=classroom.id, round_id=round.id) }}">View results</a>
               <a class="text-emerald-600 hover:underline" href="{{ url_for('export_round', classroom_id=classroom.id, round_id=round.id) }}">Export CSV</a>
+              <form id="delete-round-form-{{ round.id }}" method="post" action="{{ url_for('delete_round', classroom_id=classroom.id, round_id=round.id) }}" class="contents">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              </form>
+              <button
+                type="button"
+                data-delete-round-form="delete-round-form-{{ round.id }}"
+                data-round-label="Round {{ round.id }}"
+                class="text-rose-500 hover:underline"
+              >Delete</button>
             </div>
           </div>
         {% else %}

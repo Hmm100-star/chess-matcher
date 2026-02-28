@@ -560,6 +560,8 @@ def classroom_overview(classroom_id: int) -> str:
         classroom=classroom,
         students=students,
         rounds=rounds,
+        success=request.args.get("success"),
+        error=request.args.get("error"),
     )
 
 
@@ -1522,6 +1524,28 @@ def export_round(classroom_id: int, round_id: int):
             )
 
     return send_file(output_file, as_attachment=True)
+
+
+@app.route("/classrooms/<int:classroom_id>/rounds/<int:round_id>/delete", methods=["POST"])
+def delete_round(classroom_id: int, round_id: int):
+    teacher = require_login()
+    if not isinstance(teacher, Teacher):
+        return teacher
+
+    require_csrf()
+
+    with session_scope() as db:
+        round_record = db.get(Round, round_id)
+        if not round_record or round_record.classroom_id != classroom_id:
+            abort(404)
+        classroom = db.get(Classroom, classroom_id)
+        if not classroom or classroom.teacher_id != teacher.id:
+            abort(404)
+        db.delete(round_record)
+
+    return redirect(
+        url_for("classroom_overview", classroom_id=classroom_id, success=f"Round {round_id} deleted.")
+    )
 
 
 @app.route("/classrooms/<int:classroom_id>/import", methods=["GET", "POST"])
