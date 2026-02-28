@@ -1541,6 +1541,22 @@ def delete_round(classroom_id: int, round_id: int):
         classroom = db.get(Classroom, classroom_id)
         if not classroom or classroom.teacher_id != teacher.id:
             abort(404)
+
+        students = (
+            db.query(Student)
+            .filter(Student.classroom_id == classroom_id)
+            .all()
+        )
+        # All matches for this classroom *excluding* the round being deleted,
+        # so recalculate_totals produces stats as if this round never happened.
+        remaining_matches = (
+            db.query(Match)
+            .join(Round)
+            .options(selectinload(Match.homework_entry))
+            .filter(Round.classroom_id == classroom_id, Match.round_id != round_id)
+            .all()
+        )
+        recalculate_totals(students, remaining_matches)
         db.delete(round_record)
 
     return redirect(
