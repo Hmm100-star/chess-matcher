@@ -1123,6 +1123,23 @@ def round_results(classroom_id: int, round_id: int) -> str:
                 if r.status in {"absent", "excused"}
             ]
 
+        # Previous round's absent student IDs — used by the bulk-exempt button
+        prev_round = (
+            db.query(Round)
+            .filter(Round.classroom_id == classroom_id, Round.id < round_id)
+            .order_by(Round.id.desc())
+            .first()
+        )
+        prev_round_absent_ids: set[int] = set()
+        prev_round_absent_names: list[str] = []
+        if prev_round:
+            for rec in db.query(Attendance).filter(
+                Attendance.round_id == prev_round.id,
+                Attendance.status == "absent",
+            ).all():
+                prev_round_absent_ids.add(rec.student_id)
+                prev_round_absent_names.append(_student_name(rec.student_id))
+
     logger.info(
         "Round results rendered",
         extra={
@@ -1152,6 +1169,8 @@ def round_results(classroom_id: int, round_id: int) -> str:
         eq_missing_notation=eq_missing_notation,
         eq_unresolved_results=eq_unresolved_results,
         eq_absences=eq_absences,
+        prev_round_absent_ids=list(prev_round_absent_ids),
+        prev_round_absent_names=prev_round_absent_names,
     )
 
 
@@ -1396,12 +1415,21 @@ def exempt_absent_homework(classroom_id: int, round_id: int):
         ):
             abort(404)
 
-        absent_ids = {
-            rec.student_id
-            for rec in db.query(Attendance)
-            .filter(Attendance.round_id == round_id, Attendance.status == "absent")
-            .all()
-        }
+        # Exempt students who were absent in the PREVIOUS round
+        prev_round = (
+            db.query(Round)
+            .filter(Round.classroom_id == classroom_id, Round.id < round_id)
+            .order_by(Round.id.desc())
+            .first()
+        )
+        absent_ids: set[int] = set()
+        if prev_round:
+            absent_ids = {
+                rec.student_id
+                for rec in db.query(Attendance)
+                .filter(Attendance.round_id == prev_round.id, Attendance.status == "absent")
+                .all()
+            }
 
         exempted = 0
         matches = (
