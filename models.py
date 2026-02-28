@@ -65,7 +65,8 @@ class Round(Base):
     homework_weight = Column(Integer, default=30, nullable=False)
     status = Column(String(50), default="open", nullable=False)
     homework_total_questions = Column(Integer, default=0, nullable=False)
-    missing_homework_policy = Column(String(20), default="zero", nullable=False)
+    missing_homework_policy = Column(String(20), default="zero", nullable=False)  # legacy; superseded by missing_score_pct
+    missing_score_pct = Column(Float, nullable=True)  # None=exclude, 0-100=treat blanks as that % correct
     homework_metric_mode = Column(String(20), default="pct_correct", nullable=False)
     completion_override_reason = Column(Text, default="", nullable=False)
 

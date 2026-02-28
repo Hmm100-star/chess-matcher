@@ -801,6 +801,16 @@ def new_round(classroom_id: int) -> str:
             except ValueError as exc:
                 error = str(exc)
             else:
+                # ── Parse missing score percentage ────────────────────────
+                _missing_pct_raw = request.form.get("missing_score_pct", "").strip()
+                if _missing_pct_raw:
+                    try:
+                        missing_score_pct: Optional[float] = max(0.0, min(100.0, float(_missing_pct_raw)))
+                    except ValueError:
+                        error = "Missing score % must be a number between 0 and 100."
+                        missing_score_pct = None
+                else:
+                    missing_score_pct = None
                 # ── Parse per-assignment-type weights ────────────────────
                 active_at_configs: list[dict] = []
                 for at in assignment_types:
@@ -854,6 +864,7 @@ def new_round(classroom_id: int) -> str:
                                 present_students,
                                 win_weight,
                                 assignment_type_data=assignment_type_data,
+                                missing_score_pct=missing_score_pct,
                             )
                             # Determine next round number.
                             max_rn = (
@@ -874,6 +885,7 @@ def new_round(classroom_id: int) -> str:
                                 status="open",
                                 homework_total_questions=0,
                                 missing_homework_policy="zero",
+                                missing_score_pct=missing_score_pct,
                                 homework_metric_mode="pct_correct",
                             )
                             db.add(round_record)
@@ -955,6 +967,7 @@ def new_round(classroom_id: int) -> str:
                                 normalized_win,
                                 normalized_homework,
                                 homework_metric_mode,
+                                missing_score_pct=missing_score_pct,
                             )
                             max_rn = (
                                 db.query(func.max(Round.round_number))
@@ -970,6 +983,7 @@ def new_round(classroom_id: int) -> str:
                                 status="open",
                                 homework_total_questions=homework_total_questions,
                                 missing_homework_policy=missing_homework_policy,
+                                missing_score_pct=missing_score_pct,
                                 homework_metric_mode=homework_metric_mode,
                             )
                             db.add(round_record)
@@ -1017,7 +1031,7 @@ def new_round(classroom_id: int) -> str:
         default_win_weight=DEFAULT_WIN_WEIGHT,
         default_homework_weight=DEFAULT_HOMEWORK_WEIGHT,
         default_homework_total_questions=10,
-        default_missing_homework_policy="zero",
+        default_missing_score_pct=None,
         default_homework_metric_mode="pct_correct",
         active_nav="dashboard",
         breadcrumbs=[
@@ -1071,13 +1085,6 @@ def round_results(classroom_id: int, round_id: int) -> str:
                     request.form.get("homework_total_questions", str(round_record.homework_total_questions)),
                     "Homework total questions",
                 )
-                missing_policy = safe_strip(
-                    request.form.get(
-                        "missing_homework_policy",
-                        round_record.missing_homework_policy or "zero",
-                    ),
-                    "zero",
-                )
                 metric_mode = safe_strip(
                     request.form.get(
                         "homework_metric_mode",
@@ -1085,14 +1092,19 @@ def round_results(classroom_id: int, round_id: int) -> str:
                     ),
                     "pct_correct",
                 )
-                if missing_policy not in {"zero", "exclude", "penalty"}:
-                    missing_policy = "zero"
                 if metric_mode not in VALID_HOMEWORK_METRIC_MODES:
                     metric_mode = "pct_correct"
                 metric_mode = canonicalize_homework_metric_mode(metric_mode)
 
+                # Read missing_score_pct from form (autosaved, but also updated on bulk save).
+                _missing_pct_bulk = request.form.get("missing_score_pct", "").strip()
+                if _missing_pct_bulk:
+                    try:
+                        round_record.missing_score_pct = max(0.0, min(100.0, float(_missing_pct_bulk)))
+                    except ValueError:
+                        pass
+
                 round_record.homework_total_questions = total_questions
-                round_record.missing_homework_policy = missing_policy
                 round_record.homework_metric_mode = metric_mode
 
                 if action == "bulk_mark_all_absent":
@@ -1199,12 +1211,12 @@ def round_results(classroom_id: int, round_id: int) -> str:
                     white_correct, white_wrong, white_submitted, white_pct_wrong = apply_homework_policy(
                         white_correct_raw,
                         total_questions,
-                        missing_policy,
+                        round_record.missing_score_pct,
                     )
                     black_correct, black_wrong, black_submitted, black_pct_wrong = apply_homework_policy(
                         black_correct_raw,
                         total_questions,
-                        missing_policy,
+                        round_record.missing_score_pct,
                     )
                     if match.black_student_id is None:
                         black_correct, black_wrong, black_submitted, black_pct_wrong = (0, 0, False, 0.0)
@@ -1532,10 +1544,14 @@ def autosave_round_field(classroom_id: int, round_id: int):
         try:
             if field in {"homework_total_questions"}:
                 round_record.homework_total_questions = parse_non_negative_int(value, field)
-            elif field in {"missing_homework_policy"}:
-                if value not in {"zero", "exclude", "penalty"}:
-                    raise ValueError("Invalid missing homework policy.")
-                round_record.missing_homework_policy = value
+            elif field in {"missing_score_pct"}:
+                if value.strip() == "":
+                    round_record.missing_score_pct = None
+                else:
+                    try:
+                        round_record.missing_score_pct = max(0.0, min(100.0, float(value)))
+                    except ValueError:
+                        raise ValueError("Missing score % must be a number between 0 and 100.")
             elif field in {"homework_metric_mode"}:
                 if value not in VALID_HOMEWORK_METRIC_MODES:
                     raise ValueError("Invalid homework metric mode.")
@@ -1611,15 +1627,14 @@ def autosave_round_field(classroom_id: int, round_id: int):
                         log_field_change(db, teacher.id, classroom_id, round_id, match.id, "notation_submitted_black", old, str(checked))
                     elif field in {"white_entered_correct", "black_entered_correct"}:
                         total_questions = int(rat.total_questions or 0)
-                        missing_policy = (rat.assignment_type.missing_policy if rat.assignment_type else "zero")
                         if field == "white_entered_correct":
-                            correct, wrong, submitted, pct_wrong = apply_homework_policy(value, total_questions, missing_policy)
+                            correct, wrong, submitted, pct_wrong = apply_homework_policy(value, total_questions, round_record.missing_score_pct)
                             entry.white_correct = correct
                             entry.white_incorrect = wrong
                             entry.white_submitted = submitted
                             entry.white_pct_wrong = pct_wrong
                         else:
-                            correct, wrong, submitted, pct_wrong = apply_homework_policy(value, total_questions, missing_policy)
+                            correct, wrong, submitted, pct_wrong = apply_homework_policy(value, total_questions, round_record.missing_score_pct)
                             if match.black_student_id is None:
                                 correct, wrong, submitted, pct_wrong = (0, 0, False, 0.0)
                             entry.black_correct = correct
@@ -1693,7 +1708,7 @@ def autosave_round_field(classroom_id: int, round_id: int):
                             correct, wrong, submitted, pct_wrong = apply_homework_policy(
                                 value,
                                 total_questions,
-                                round_record.missing_homework_policy,
+                                round_record.missing_score_pct,
                             )
                             homework_entry.white_correct = correct
                             homework_entry.white_incorrect = wrong
@@ -1703,7 +1718,7 @@ def autosave_round_field(classroom_id: int, round_id: int):
                             correct, wrong, submitted, pct_wrong = apply_homework_policy(
                                 value,
                                 total_questions,
-                                round_record.missing_homework_policy,
+                                round_record.missing_score_pct,
                             )
                             if match.black_student_id is None:
                                 correct, wrong, submitted, pct_wrong = (0, 0, False, 0.0)

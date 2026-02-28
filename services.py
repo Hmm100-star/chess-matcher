@@ -35,6 +35,7 @@ def build_rating_dataframe(
     homework_weight: float = 0.0,
     homework_metric_mode: str = "pct_correct",
     assignment_type_data: Optional[List[Dict]] = None,
+    missing_score_pct: Optional[float] = None,
 ) -> Tuple[pd.DataFrame, List[int]]:
     """Build a rating DataFrame for pairing.
 
@@ -43,6 +44,9 @@ def build_rating_dataframe(
       - ``weight``        float (pre-normalised fraction of total rating)
       - ``metric_mode``   str (``'pct_correct'`` or ``'total_correct'``)
       - ``student_scores`` dict mapping student_id -> (correct: int, incorrect: int)
+
+    *missing_score_pct*: None = treat students with no score as 0 (excluded effect),
+    0-100 = substitute that percentage for students absent from *student_scores*.
     """
     rows: List[RatingRow] = []
     student_cache: List[Student] = list(students)
@@ -60,8 +64,11 @@ def build_rating_dataframe(
         for at in assignment_type_data:
             at_metric = canonicalize_homework_metric_mode(at.get("metric_mode", "pct_correct"))
             scores_map: Dict[int, Tuple[int, int]] = at.get("student_scores", {})
+            missing_indices: List[int] = []
             raw: List[float] = []
-            for student in student_cache:
+            for idx, student in enumerate(student_cache):
+                if student.id not in scores_map:
+                    missing_indices.append(idx)
                 correct, incorrect = scores_map.get(student.id, (0, 0))
                 total = correct + incorrect
                 if at_metric == "total_correct":
@@ -72,6 +79,11 @@ def build_rating_dataframe(
             if at_metric == "total_correct":
                 max_val = max(raw) if raw else 0.0
                 raw = [s / max_val if max_val > 0 else 0.0 for s in raw]
+            # Apply missing_score_pct for students with no historical score.
+            if missing_score_pct is not None and missing_indices:
+                synthetic = max(0.0, min(100.0, missing_score_pct)) / 100.0
+                for idx in missing_indices:
+                    raw[idx] = synthetic
             at_score_lists.append(raw)
 
         for idx, student in enumerate(student_cache):
@@ -144,6 +156,7 @@ def generate_matches_for_students(
     homework_weight: float = 0.0,
     homework_metric_mode: str = "pct_correct",
     assignment_type_data: Optional[List[Dict]] = None,
+    missing_score_pct: Optional[float] = None,
 ) -> Tuple[List[Tuple[int, int]], List[int], pd.DataFrame, List[int]]:
     if assignment_type_data is not None:
         all_weights = [win_weight] + [at["weight"] for at in assignment_type_data]
@@ -153,12 +166,14 @@ def generate_matches_for_students(
             {**at, "weight": normalized[i + 1]} for i, at in enumerate(assignment_type_data)
         ]
         df, id_order = build_rating_dataframe(
-            students, normalized_win, assignment_type_data=normalized_ats
+            students, normalized_win, assignment_type_data=normalized_ats,
+            missing_score_pct=missing_score_pct,
         )
     else:
         normalized_win, normalized_homework = normalize_weights(win_weight, homework_weight)
         df, id_order = build_rating_dataframe(
-            students, normalized_win, normalized_homework, homework_metric_mode
+            students, normalized_win, normalized_homework, homework_metric_mode,
+            missing_score_pct=missing_score_pct,
         )
     matches, unpaired = select_pairings(df, rng=_random())
     return matches, unpaired, df, id_order
@@ -293,18 +308,23 @@ def recalculate_totals(students: Iterable[Student], matches: Iterable[Match], db
 def apply_homework_policy(
     entered_correct: Optional[str],
     total_questions: int,
-    missing_policy: str,
+    missing_score_pct: Optional[float],
 ) -> tuple[int, int, bool, float]:
-    """Compute correct/incorrect/submitted/pct_wrong from round policy."""
+    """Compute correct/incorrect/submitted/pct_wrong from round policy.
+
+    missing_score_pct:
+      None        – exclude blank entries (no effect on the student's aggregate)
+      0 – 100     – treat blank entries as that percentage correct
+    """
     entered_value = (entered_correct or "").strip()
     if not entered_value:
-        if missing_policy == "exclude":
+        if missing_score_pct is None:
             return 0, 0, False, 0.0
-        if missing_policy == "penalty":
-            wrong = max(total_questions, 0)
-            return 0, wrong, False, 1.0 if wrong else 0.0
-        wrong = max(total_questions, 0)
-        return 0, wrong, False, 1.0 if wrong else 0.0
+        pct = max(0.0, min(100.0, missing_score_pct)) / 100.0
+        correct = round(pct * max(total_questions, 0))
+        wrong = max(total_questions - correct, 0)
+        pct_wrong = (wrong / total_questions) if total_questions > 0 else 0.0
+        return correct, wrong, False, pct_wrong
 
     parsed_correct = int(float(entered_value))
     if parsed_correct < 0:
