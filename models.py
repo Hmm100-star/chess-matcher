@@ -57,6 +57,7 @@ class Round(Base):
 
     id = Column(Integer, primary_key=True)
     classroom_id = Column(Integer, ForeignKey("classrooms.id"), nullable=False)
+    round_number = Column(Integer, nullable=True)  # sequential per-classroom (NULL for legacy rows)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     win_weight = Column(Integer, default=70, nullable=False)
     homework_weight = Column(Integer, default=30, nullable=False)

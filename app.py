@@ -22,7 +22,7 @@ from flask import (
     url_for,
 )
 from flask import has_request_context
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 from werkzeug.exceptions import HTTPException
@@ -705,8 +705,17 @@ def new_round(classroom_id: int) -> str:
                     except ValueError as exc:
                         error = str(exc)
                     else:
+                        # Determine the next sequential round number for this classroom.
+                        max_rn = (
+                            db.query(func.max(Round.round_number))
+                            .filter(Round.classroom_id == classroom_id)
+                            .scalar()
+                        )
+                        next_round_number = (max_rn or 0) + 1
+
                         round_record = Round(
                             classroom_id=classroom_id,
+                            round_number=next_round_number,
                             win_weight=int(normalized_win * 100),
                             homework_weight=int(normalized_homework * 100),
                             status="open",
@@ -1572,10 +1581,12 @@ def export_round(classroom_id: int, round_id: int):
         student_map = {student.id: student for student in students}
 
     output_file = OUTPUTS_DIR / f"next_matches_{classroom_id}_{round_id}.csv"
+    display_round_number = round_record.round_number if round_record.round_number is not None else round_record.id
     with output_file.open("w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(
             [
+                "Round Number",
                 "White Player",
                 "White Player Strength",
                 "Black Player",
@@ -1596,6 +1607,7 @@ def export_round(classroom_id: int, round_id: int):
             homework = match.homework_entry
             writer.writerow(
                 [
+                    display_round_number,
                     student_map.get(match.white_student_id).name
                     if match.white_student_id
                     else "",

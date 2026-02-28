@@ -107,7 +107,7 @@
         {% for round in rounds %}
           <div class="rounded-2xl border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-900/60">
             <div class="flex items-center justify-between">
-              <span class="font-semibold">Round {{ round.id }}</span>
+              <span class="font-semibold">Round {{ round.round_number if round.round_number is not none else round.id }}</span>
               <span class="text-xs text-gray-500">{{ round.created_at.strftime('%Y-%m-%d') }}</span>
             </div>
             <div class="mt-1 text-xs text-gray-500">Status: {{ round.status }}</div>
@@ -120,7 +120,7 @@
               <button
                 type="button"
                 data-delete-round-form="delete-round-form-{{ round.id }}"
-                data-round-label="Round {{ round.id }}"
+                data-round-label="Round {{ round.round_number if round.round_number is not none else round.id }}"
                 class="text-rose-500 hover:underline"
               >Delete</button>
             </div>

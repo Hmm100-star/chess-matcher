@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Round {{ round_record.id }} · {{ classroom.name }}{% endblock %}
+{% block title %}Round {{ round_record.round_number if round_record.round_number is not none else round_record.id }} · {{ classroom.name }}{% endblock %}
 {% block content %}
   <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
     <div>
-      <h1 class="text-2xl font-semibold">Round {{ round_record.id }} results</h1>
+      <h1 class="text-2xl font-semibold">Round {{ round_record.round_number if round_record.round_number is not none else round_record.id }} results</h1>
       <p class="text-sm text-gray-600 dark:text-gray-300">Autosave is enabled. Changes save 800ms after edits.</p>
     </div>
     <div class="flex flex-wrap gap-2">
