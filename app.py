@@ -572,6 +572,22 @@ def classroom_overview(classroom_id: int) -> str:
             .order_by(Round.created_at.desc())
             .all()
         )
+        assignment_types = (
+            db.query(AssignmentType)
+            .filter(AssignmentType.classroom_id == classroom_id)
+            .order_by(AssignmentType.created_at)
+            .all()
+        )
+        student_ids = [s.id for s in students]
+        all_scores = (
+            db.query(StudentAssignmentScore)
+            .filter(StudentAssignmentScore.student_id.in_(student_ids))
+            .all()
+            if student_ids else []
+        )
+        scores_map: dict = {}
+        for sc in all_scores:
+            scores_map.setdefault(sc.student_id, {})[sc.assignment_type_id] = sc
 
     return render_template(
         "classroom.html",
@@ -579,6 +595,8 @@ def classroom_overview(classroom_id: int) -> str:
         classroom=classroom,
         students=students,
         rounds=rounds,
+        assignment_types=assignment_types,
+        scores_map=scores_map,
         success=request.args.get("success"),
         error=request.args.get("error"),
         active_nav="dashboard",

@@ -59,8 +59,14 @@
             <tr>
               <th class="py-2">Student</th>
               <th class="py-2">W/L/T</th>
-              <th class="py-2">White/Black</th>
-              <th class="py-2">Homework</th>
+              <th class="py-2">W/B</th>
+              {% if assignment_types %}
+                {% for at in assignment_types %}
+                  <th class="py-2 text-purple-600 dark:text-purple-400">{{ at.name }}</th>
+                {% endfor %}
+              {% else %}
+                <th class="py-2">HW</th>
+              {% endif %}
               <th class="py-2">Active</th>
               <th class="py-2">Notes</th>
               <th class="py-2"></th>
@@ -72,7 +78,14 @@
                 <td class="py-3 font-semibold">{{ student.name }}</td>
                 <td class="py-3">{{ student.total_wins }}/{{ student.total_losses }}/{{ student.total_ties }}</td>
                 <td class="py-3">{{ student.times_white }}/{{ student.times_black }}</td>
-                <td class="py-3">{{ student.homework_correct }}/{{ student.homework_incorrect }}</td>
+                {% if assignment_types %}
+                  {% for at in assignment_types %}
+                    {% set sc = scores_map.get(student.id, {}).get(at.id) %}
+                    <td class="py-3 text-gray-700 dark:text-gray-300">{{ sc.correct if sc else 0 }}/{{ sc.incorrect if sc else 0 }}</td>
+                  {% endfor %}
+                {% else %}
+                  <td class="py-3">{{ student.homework_correct }}/{{ student.homework_incorrect }}</td>
+                {% endif %}
                 <td class="py-3">{{ 'Yes' if student.active else 'No' }}</td>
                 <td class="py-3 text-xs text-gray-500">{{ student.notes or '—' }}</td>
                 <td class="py-3">
