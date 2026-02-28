@@ -92,6 +92,8 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "black_submitted",
         "white_pct_wrong",
         "black_pct_wrong",
+        "white_exempt",
+        "black_exempt",
     },
     "audit_logs": {
         "id",
@@ -126,6 +128,8 @@ POSTGRES_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
     "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS black_submitted BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS white_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0.0",
     "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS black_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0.0",
+    "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS white_exempt BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE IF EXISTS homework_entries ADD COLUMN IF NOT EXISTS black_exempt BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE TABLE IF NOT EXISTS audit_logs (id SERIAL PRIMARY KEY, classroom_id INTEGER NOT NULL, round_id INTEGER NOT NULL, match_id INTEGER NOT NULL, actor_teacher_id INTEGER NOT NULL, field_name VARCHAR(100) NOT NULL, old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '', created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW())",
     "ALTER TABLE IF EXISTS audit_logs ADD COLUMN IF NOT EXISTS actor_teacher_id INTEGER",
     "ALTER TABLE IF EXISTS audit_logs DROP COLUMN IF EXISTS teacher_id",

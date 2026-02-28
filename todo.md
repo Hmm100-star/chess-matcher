@@ -1,5 +1,4 @@
-Delete round button (button to delete a round, with confirmation prompt)
-Exempt student from homework button (button to exempt all students who were absent last class)
+Exempt student from homework button for each student and button to exempt all students who were absent last round
 Improve signage and navigation
 Fix round counting (show round count for each class, not global)
 Option to count blanks / no homeworks as [user-input] percentage

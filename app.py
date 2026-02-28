@@ -1338,6 +1338,13 @@ def autosave_round_field(classroom_id: int, round_id: int):
                         homework_entry.black_incorrect = wrong
                         homework_entry.black_submitted = submitted
                         homework_entry.black_pct_wrong = pct_wrong
+                elif field in {"white_exempt", "black_exempt"}:
+                    exempt_val = value == "true"
+                    if field == "white_exempt":
+                        homework_entry.white_exempt = exempt_val
+                    else:
+                        if match.black_student_id is not None:
+                            homework_entry.black_exempt = exempt_val
                 else:
                     raise ValueError("Unsupported autosave field.")
                 match.updated_at = datetime.utcnow()
@@ -1369,6 +1376,65 @@ def autosave_round_field(classroom_id: int, round_id: int):
                 },
             )
             return jsonify({"saved": False, "error": "Save failed due to a temporary data issue. Please retry."}), 500
+
+
+@app.route("/classrooms/<int:classroom_id>/rounds/<int:round_id>/exempt_absent", methods=["POST"])
+def exempt_absent_homework(classroom_id: int, round_id: int):
+    teacher = require_login()
+    if not isinstance(teacher, Teacher):
+        return teacher
+
+    require_csrf()
+    with session_scope() as db:
+        classroom = db.get(Classroom, classroom_id)
+        round_record = db.get(Round, round_id)
+        if (
+            not classroom
+            or classroom.teacher_id != teacher.id
+            or not round_record
+            or round_record.classroom_id != classroom_id
+        ):
+            abort(404)
+
+        absent_ids = {
+            rec.student_id
+            for rec in db.query(Attendance)
+            .filter(Attendance.round_id == round_id, Attendance.status == "absent")
+            .all()
+        }
+
+        exempted = 0
+        matches = (
+            db.query(Match)
+            .options(selectinload(Match.homework_entry))
+            .filter(Match.round_id == round_id)
+            .all()
+        )
+        for match in matches:
+            hw = match.homework_entry
+            if not hw:
+                hw = HomeworkEntry(match_id=match.id)
+                db.add(hw)
+                match.homework_entry = hw
+
+            if match.white_student_id in absent_ids and not hw.white_exempt:
+                hw.white_exempt = True
+                exempted += 1
+            if match.black_student_id and match.black_student_id in absent_ids and not hw.black_exempt:
+                hw.black_exempt = True
+                exempted += 1
+
+        all_students = db.query(Student).filter(Student.classroom_id == classroom_id).all()
+        all_matches = (
+            db.query(Match)
+            .join(Round)
+            .options(selectinload(Match.homework_entry))
+            .filter(Round.classroom_id == classroom_id)
+            .all()
+        )
+        recalculate_totals(all_students, all_matches)
+        db.flush()
+        return jsonify({"ok": True, "exempted": exempted})
 
 
 @app.route("/classrooms/<int:classroom_id>/exceptions")

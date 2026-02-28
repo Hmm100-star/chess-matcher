@@ -119,6 +119,8 @@ class HomeworkEntry(Base):
     black_submitted = Column(Boolean, default=False, nullable=False)
     white_pct_wrong = Column(Float, default=0.0, nullable=False)
     black_pct_wrong = Column(Float, default=0.0, nullable=False)
+    white_exempt = Column(Boolean, default=False, nullable=False)
+    black_exempt = Column(Boolean, default=False, nullable=False)
 
     match = relationship("Match", back_populates="homework_entry")
 

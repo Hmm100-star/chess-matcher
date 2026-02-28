@@ -78,6 +78,11 @@
         <button type="submit" name="action" value="bulk_set_unresolved_tie" class="rounded-xl bg-gray-800 px-3 py-2 text-xs font-semibold text-white">Set unresolved to tie</button>
         <button type="submit" name="action" value="bulk_mark_all_absent" class="rounded-xl bg-rose-700 px-3 py-2 text-xs font-semibold text-white">Mark all absent</button>
         <button type="submit" name="action" value="save" class="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Save all</button>
+        <button
+          type="button"
+          id="exempt-absent-btn"
+          class="rounded-xl bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+        >Exempt all absent from homework</button>
       </div>
       <div class="grid gap-2 sm:grid-cols-2">
         {% for student_id, record in attendance_by_student.items() %}
@@ -150,32 +155,57 @@
             </div>
             <div>
               <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">White correct</label>
+              {% set white_exempt = match.homework_entry and match.homework_entry.white_exempt %}
               <input
                 name="white_entered_correct_{{ match.id }}"
                 type="number"
                 min="0"
                 value="{{ match.homework_entry.white_correct if match.homework_entry and match.homework_entry.white_submitted else '' }}"
-                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900{% if white_exempt %} opacity-40 pointer-events-none{% endif %}"
                 data-match-id="{{ match.id }}"
                 data-field="white_entered_correct"
                 placeholder="Blank = missing"
+                {% if white_exempt %}disabled{% endif %}
               />
-              <p class="mt-1 text-xs text-gray-500">Wrong: {{ match.homework_entry.white_incorrect if match.homework_entry else 0 }}</p>
+              <div class="mt-1 flex items-center gap-2">
+                <p class="text-xs text-gray-500">Wrong: {{ match.homework_entry.white_incorrect if match.homework_entry else 0 }}</p>
+                <button
+                  type="button"
+                  class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
+                    {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if white_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+                  data-match-id="{{ match.id }}"
+                  data-field="white_exempt"
+                  data-active="{{ 'true' if white_exempt else 'false' }}"
+                >{{ 'Exempt ✓' if white_exempt else 'Exempt' }}</button>
+              </div>
             </div>
             <div>
               <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Black correct</label>
+              {% set black_exempt = match.homework_entry and match.homework_entry.black_exempt %}
               <input
                 name="black_entered_correct_{{ match.id }}"
                 type="number"
                 min="0"
                 value="{{ match.homework_entry.black_correct if match.homework_entry and match.homework_entry.black_submitted else '' }}"
-                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                class="autosave-match mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900{% if black_exempt %} opacity-40 pointer-events-none{% endif %}"
                 data-match-id="{{ match.id }}"
                 data-field="black_entered_correct"
                 placeholder="Blank = missing"
-                {% if black is none %}disabled{% endif %}
+                {% if black is none or black_exempt %}disabled{% endif %}
               />
-              <p class="mt-1 text-xs text-gray-500">Wrong: {{ match.homework_entry.black_incorrect if match.homework_entry else 0 }}</p>
+              <div class="mt-1 flex items-center gap-2">
+                <p class="text-xs text-gray-500">Wrong: {{ match.homework_entry.black_incorrect if match.homework_entry else 0 }}</p>
+                {% if black is not none %}
+                  <button
+                    type="button"
+                    class="exempt-toggle ml-auto rounded px-2 py-0.5 text-xs font-semibold transition
+                      {{ 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' if black_exempt else 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-amber-50 hover:text-amber-600' }}"
+                    data-match-id="{{ match.id }}"
+                    data-field="black_exempt"
+                    data-active="{{ 'true' if black_exempt else 'false' }}"
+                  >{{ 'Exempt ✓' if black_exempt else 'Exempt' }}</button>
+                {% endif %}
+              </div>
             </div>
             <div>
               <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Notation</label>
@@ -402,6 +432,73 @@
           debounceSave(field, { field, value });
         });
       });
+
+      // Per-student exempt toggles
+      document.querySelectorAll('.exempt-toggle').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const matchId = btn.dataset.matchId;
+          const field = btn.dataset.field;
+          const isActive = btn.dataset.active === 'true';
+          const newValue = !isActive;
+
+          btn.dataset.active = String(newValue);
+          btn.textContent = newValue ? 'Exempt ✓' : 'Exempt';
+          btn.classList.toggle('bg-amber-100', newValue);
+          btn.classList.toggle('text-amber-700', newValue);
+          btn.classList.toggle('dark:bg-amber-900/30', newValue);
+          btn.classList.toggle('dark:text-amber-300', newValue);
+          btn.classList.toggle('bg-gray-100', !newValue);
+          btn.classList.toggle('text-gray-500', !newValue);
+          btn.classList.toggle('dark:bg-gray-700', !newValue);
+          btn.classList.toggle('dark:text-gray-400', !newValue);
+
+          // Disable/enable the associated homework input
+          const inputField = field === 'white_exempt' ? 'white_entered_correct' : 'black_entered_correct';
+          const card = btn.closest('.match-card');
+          if (card) {
+            const hw = card.querySelector(`[data-field="${inputField}"]`);
+            if (hw) {
+              hw.disabled = newValue;
+              hw.classList.toggle('opacity-40', newValue);
+              hw.classList.toggle('pointer-events-none', newValue);
+            }
+          }
+
+          save({ match_id: matchId, field, value: String(newValue) });
+        });
+      });
+
+      // Bulk exempt all absent students
+      const exemptAbsentBtn = document.getElementById('exempt-absent-btn');
+      if (exemptAbsentBtn) {
+        const exemptEndpoint = "{{ url_for('exempt_absent_homework', classroom_id=classroom.id, round_id=round_record.id) }}";
+        exemptAbsentBtn.addEventListener('click', () => {
+          exemptAbsentBtn.disabled = true;
+          exemptAbsentBtn.textContent = 'Exempting...';
+          setStatus('Saving...');
+          fetch(exemptEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ csrf_token: csrfToken }),
+          })
+            .then((r) => r.json())
+            .then((data) => {
+              if (data.ok) {
+                setStatus(`Exempted ${data.exempted} student side(s). Reloading...`);
+                setTimeout(() => location.reload(), 800);
+              } else {
+                setStatus('Exempt failed', true);
+                exemptAbsentBtn.disabled = false;
+                exemptAbsentBtn.textContent = 'Exempt all absent from homework';
+              }
+            })
+            .catch(() => {
+              setStatus('Exempt failed', true);
+              exemptAbsentBtn.disabled = false;
+              exemptAbsentBtn.textContent = 'Exempt all absent from homework';
+            });
+        });
+      }
     })();
   </script>
 {% endblock %}

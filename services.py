@@ -191,10 +191,10 @@ def recalculate_totals(students: Iterable[Student], matches: Iterable[Match]) ->
             student_map[black_id].total_ties += 1
 
         if homework:
-            if white_id and white_id in student_map:
+            if white_id and white_id in student_map and not homework.white_exempt:
                 student_map[white_id].homework_correct += int(homework.white_correct or 0)
                 student_map[white_id].homework_incorrect += int(homework.white_incorrect or 0)
-            if black_id and black_id in student_map:
+            if black_id and black_id in student_map and not homework.black_exempt:
                 student_map[black_id].homework_correct += int(homework.black_correct or 0)
                 student_map[black_id].homework_incorrect += int(homework.black_incorrect or 0)
 
