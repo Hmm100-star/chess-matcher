@@ -263,10 +263,68 @@
     </div> <!-- end lg:col-span-3 -->
 
     <div class="lg:col-span-1 space-y-4 lg:sticky lg:top-6 mt-6 lg:mt-0">
-      <div class="rounded-2xl border border-gray-200 bg-white/90 p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800/90">
-        <h2 class="text-base font-semibold text-gray-700 dark:text-gray-300 mb-2">Exceptions Queue</h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400">Exceptions are shown for completed rounds only. Complete this round to see its exceptions.</p>
-        <a href="{{ url_for('exceptions_queue', classroom_id=classroom.id) }}" class="mt-3 inline-block text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">View exceptions queue &rarr;</a>
+      {% set eq_total = (eq_missing_homework|length) + (eq_missing_notation|length) + (eq_unresolved_results|length) + (eq_absences|length) %}
+      {% if eq_round and eq_total == 0 %}
+        {% set eq_border = 'border-emerald-200 dark:border-emerald-900/50' %}
+        {% set eq_title_color = 'text-emerald-700 dark:text-emerald-400' %}
+        {% set eq_badge_color = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' %}
+      {% elif eq_round %}
+        {% set eq_border = 'border-rose-200 dark:border-rose-900/50' %}
+        {% set eq_title_color = 'text-rose-700 dark:text-rose-400' %}
+        {% set eq_badge_color = 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300' %}
+      {% else %}
+        {% set eq_border = 'border-gray-200 dark:border-gray-700' %}
+        {% set eq_title_color = 'text-gray-700 dark:text-gray-300' %}
+        {% set eq_badge_color = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' %}
+      {% endif %}
+      <div class="rounded-2xl border {{ eq_border }} bg-white/90 p-4 shadow-sm dark:bg-gray-800/90">
+        <h2 class="text-base font-semibold {{ eq_title_color }} mb-3 flex items-center justify-between">
+          <span>Exceptions Queue</span>
+          {% if eq_round %}
+            <span class="rounded-full px-2 py-0.5 text-xs font-bold {{ eq_badge_color }}">{{ eq_total }}</span>
+          {% endif %}
+        </h2>
+        {% if not eq_round %}
+          <p class="text-sm text-gray-500 dark:text-gray-400">No completed rounds yet.</p>
+        {% elif eq_total == 0 %}
+          <p class="text-sm text-emerald-600 dark:text-emerald-400">All clear! Excellent.</p>
+        {% else %}
+          <div class="space-y-4 text-sm">
+            {% if eq_missing_homework %}
+              <div>
+                <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">Missing homework</h3>
+                <ul class="list-disc pl-5 text-gray-600 dark:text-gray-400 marker:text-rose-400">
+                  {% for item in eq_missing_homework %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+            {% if eq_missing_notation %}
+              <div>
+                <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">Missing notation</h3>
+                <ul class="list-disc pl-5 text-gray-600 dark:text-gray-400 marker:text-rose-400">
+                  {% for item in eq_missing_notation %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+            {% if eq_unresolved_results %}
+              <div>
+                <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">Unresolved results</h3>
+                <ul class="list-disc pl-5 text-gray-600 dark:text-gray-400 marker:text-rose-400">
+                  {% for match_id in eq_unresolved_results %}<li>Match {{ match_id }}</li>{% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+            {% if eq_absences %}
+              <div>
+                <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">Absent/excused</h3>
+                <ul class="list-disc pl-5 text-gray-600 dark:text-gray-400 marker:text-rose-400">
+                  {% for student in eq_absences %}<li>{{ student }}</li>{% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+        <a href="{{ url_for('exceptions_queue', classroom_id=classroom.id) }}" class="mt-3 inline-block text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">View full exceptions queue &rarr;</a>
       </div>
     </div>
   </div> <!-- end lg:grid -->

@@ -1075,6 +1075,52 @@ def round_results(classroom_id: int, round_id: int) -> str:
             .all()
         )
 
+        # Exceptions from the last completed round for the sidebar panel
+        def _student_name(student_id: int | None) -> str:
+            if student_id is None:
+                return "Unknown student"
+            s = student_map.get(student_id)
+            return s.name if s else f"Student #{student_id}"
+
+        eq_round = (
+            db.query(Round)
+            .filter(Round.classroom_id == classroom_id, Round.status == "completed")
+            .order_by(Round.created_at.desc())
+            .first()
+        )
+        eq_missing_homework: list[str] = []
+        eq_missing_notation: list[str] = []
+        eq_unresolved_results: list[int] = []
+        eq_absences: list[str] = []
+        if eq_round:
+            eq_matches = (
+                db.query(Match)
+                .options(selectinload(Match.homework_entry))
+                .filter(Match.round_id == eq_round.id)
+                .order_by(Match.id)
+                .all()
+            )
+            eq_attendance = (
+                db.query(Attendance).filter(Attendance.round_id == eq_round.id).all()
+            )
+            for m in eq_matches:
+                if m.black_student_id is not None and not m.result:
+                    eq_unresolved_results.append(m.id)
+                hw = m.homework_entry
+                if m.white_student_id and (not hw or not hw.white_submitted):
+                    eq_missing_homework.append(f"Match {m.id}: {_student_name(m.white_student_id)}")
+                if m.black_student_id and (not hw or not hw.black_submitted):
+                    eq_missing_homework.append(f"Match {m.id}: {_student_name(m.black_student_id)}")
+                if m.white_student_id and not m.notation_submitted_white:
+                    eq_missing_notation.append(f"Match {m.id}: {_student_name(m.white_student_id)}")
+                if m.black_student_id and not m.notation_submitted_black:
+                    eq_missing_notation.append(f"Match {m.id}: {_student_name(m.black_student_id)}")
+            eq_absences = [
+                _student_name(r.student_id)
+                for r in eq_attendance
+                if r.status in {"absent", "excused"}
+            ]
+
     logger.info(
         "Round results rendered",
         extra={
@@ -1099,6 +1145,11 @@ def round_results(classroom_id: int, round_id: int) -> str:
         attendance_metrics=attendance_metrics,
         fairness_diagnostics=fairness_diagnostics,
         error=error,
+        eq_round=eq_round,
+        eq_missing_homework=eq_missing_homework,
+        eq_missing_notation=eq_missing_notation,
+        eq_unresolved_results=eq_unresolved_results,
+        eq_absences=eq_absences,
     )
 
 
