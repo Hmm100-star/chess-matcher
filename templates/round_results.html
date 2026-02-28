@@ -8,10 +8,6 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <a
-        href="{{ url_for('exceptions_queue', classroom_id=classroom.id) }}"
-        class="rounded-2xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:border-amber-400 dark:border-amber-700 dark:text-amber-200"
-      >Exceptions queue</a>
-      <a
         href="{{ url_for('export_round', classroom_id=classroom.id, round_id=round_record.id) }}"
         class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-400 hover:text-emerald-600 dark:border-gray-700 dark:text-gray-200"
       >Export CSV</a>
@@ -26,6 +22,8 @@
     <p class="mt-1 text-xs text-gray-500">Notation submitted: {{ notation_summary.submitted }}/{{ notation_summary.expected }}</p>
   </div>
 
+  <div class="lg:grid lg:grid-cols-4 lg:gap-6 lg:items-start">
+    <div class="lg:col-span-3">
   <form method="post" class="space-y-6" id="round-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
@@ -82,8 +80,9 @@
               <span class="text-xs text-gray-500">A-rate {{ (metric.absence_rate * 100)|round(1) if metric else 0 }}%</span>
               <select
                 name="attendance_status_{{ student_id }}"
-                class="autosave-attendance rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                class="autosave-attendance attendance-select rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
                 data-field="attendance_status_{{ student_id }}"
+                data-student-name="{{ student.name if student else 'Unknown' }}"
               >
                 <option value="present" {% if record.status == 'present' %}selected{% endif %}>Present</option>
                 <option value="late" {% if record.status == 'late' %}selected{% endif %}>Late</option>
@@ -100,7 +99,11 @@
       {% for match in matches %}
         {% set white = student_map.get(match.white_student_id) %}
         {% set black = student_map.get(match.black_student_id) %}
-        <div class="rounded-3xl border border-gray-200 bg-white/90 p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800/90">
+        <div class="match-card rounded-3xl border border-gray-200 bg-white/90 p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800/90" 
+             data-match-id="{{ match.id }}" 
+             data-white-name="{{ white.name if white else 'White' }}" 
+             data-black-name="{{ black.name if black else 'None' }}" 
+             data-is-bye="{{ 'true' if not black else 'false' }}">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p class="text-sm text-gray-500">Match {{ loop.index }}</p>
@@ -257,7 +260,21 @@
       </table>
     </div>
   </section>
+    </div> <!-- end lg:col-span-3 -->
 
+    <div class="lg:col-span-1 space-y-4 lg:sticky lg:top-6 mt-6 lg:mt-0">
+      <div class="rounded-2xl border border-rose-200 bg-white/90 p-4 shadow-sm dark:border-rose-900/50 dark:bg-gray-800/90 hidden" id="exceptions-queue-container" style="display: block;">
+        <h2 class="text-base font-semibold text-rose-700 dark:text-rose-400 mb-3 flex items-center justify-between">
+          <span>Exceptions Queue</span>
+          <span class="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800 dark:bg-rose-900/30 dark:text-rose-300" id="eq-total-badge">0</span>
+        </h2>
+        
+        <div class="space-y-4 text-sm" id="eq-sections">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+  </div> <!-- end lg:grid -->
   <script>
     (() => {
       const endpoint = "{{ url_for('autosave_round_field', classroom_id=classroom.id, round_id=round_record.id) }}";
@@ -305,6 +322,94 @@
         );
       };
 
+      const updateExceptionsQueue = () => {
+        const missingHomework = [];
+        const missingNotation = [];
+        const unresolvedResults = [];
+        const absences = [];
+
+        document.querySelectorAll('.attendance-select').forEach(el => {
+          if (el.value === 'absent' || el.value === 'excused') {
+            absences.push(el.dataset.studentName);
+          }
+        });
+
+        document.querySelectorAll('.match-card').forEach(card => {
+          const matchId = card.dataset.matchId;
+          const wName = card.dataset.whiteName;
+          const bName = card.dataset.blackName;
+          const isBye = card.dataset.isBye === 'true';
+
+          const wHw = card.querySelector(`input[name="white_entered_correct_${matchId}"]`);
+          if (wHw && wHw.value === '') {
+            missingHomework.push(`Match ${matchId}: ${wName}`);
+          }
+          if (!isBye) {
+            const bHw = card.querySelector(`input[name="black_entered_correct_${matchId}"]`);
+            if (bHw && bHw.value === '') {
+              missingHomework.push(`Match ${matchId}: ${bName}`);
+            }
+          }
+
+          const wNot = card.querySelector(`input[name="notation_white_${matchId}"]`);
+          if (wNot && !wNot.checked) {
+             missingNotation.push(`Match ${matchId}: ${wName}`);
+          }
+          if (!isBye) {
+            const bNot = card.querySelector(`input[name="notation_black_${matchId}"]`);
+            if (bNot && !bNot.checked) {
+              missingNotation.push(`Match ${matchId}: ${bName}`);
+            }
+          }
+
+          if (!isBye) {
+            const resultSel = card.querySelector(`select[name="result_${matchId}"]`);
+            if (resultSel && resultSel.value === '') {
+              unresolvedResults.push(`Match ${matchId}`);
+            }
+          }
+        });
+
+        const container = document.getElementById('exceptions-queue-container');
+        if (!container) return; // safeguard
+
+        const sections = document.getElementById('eq-sections');
+        const totalBadge = document.getElementById('eq-total-badge');
+        const titleH2 = container.querySelector('h2');
+        
+        const totalItems = missingHomework.length + missingNotation.length + unresolvedResults.length + absences.length;
+        
+        container.className = `rounded-2xl border bg-white/90 p-4 shadow-sm dark:bg-gray-800/90 ${totalItems === 0 ? 'border-emerald-200 dark:border-emerald-900/50' : 'border-rose-200 dark:border-rose-900/50'}`;
+        titleH2.className = `text-base font-semibold mb-3 flex items-center justify-between ${totalItems === 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`;
+        totalBadge.className = `rounded-full px-2 py-0.5 text-xs font-bold ${totalItems === 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300'}`;
+        
+        totalBadge.textContent = String(totalItems);
+
+        if (totalItems === 0) {
+          sections.innerHTML = '<p class="text-emerald-600 dark:text-emerald-400 text-sm">All clear! Excellent.</p>';
+          return;
+        }
+
+        const makeList = (title, items) => {
+          if (items.length === 0) return '';
+          return `
+            <div>
+              <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">${title}</h3>
+              <ul class="list-disc pl-5 text-gray-600 dark:text-gray-400 marker:text-rose-400">
+                ${items.map(i => `<li>${i}</li>`).join('')}
+              </ul>
+            </div>
+          `;
+        };
+
+        sections.innerHTML = `
+          ${makeList('Missing homework', missingHomework)}
+          ${makeList('Missing notation', missingNotation)}
+          ${makeList('Unresolved results', unresolvedResults)}
+          ${makeList('Absent/excused', absences)}
+        `;
+      };
+
       document.querySelectorAll('.autosave-match').forEach((el) => {
         const eventName = el.dataset.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input';
         el.addEventListener(eventName, () => {
@@ -312,6 +417,7 @@
           const field = el.dataset.field;
           const value = el.dataset.type === 'checkbox' ? String(el.checked) : el.value;
           debounceSave(`${field}-${matchId}`, { match_id: matchId, field, value });
+          updateExceptionsQueue();
         });
       });
 
@@ -321,8 +427,12 @@
           const field = el.dataset.field;
           const value = el.value;
           debounceSave(field, { field, value });
+          updateExceptionsQueue();
         });
       });
+
+      // Initial render on page load
+      updateExceptionsQueue();
     })();
   </script>
 {% endblock %}
