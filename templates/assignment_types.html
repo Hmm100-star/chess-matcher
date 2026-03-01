@@ -33,8 +33,6 @@
                 <p class="font-semibold text-sm">{{ at.name }}</p>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   Metric: {{ 'Percentage Correct' if at.metric_mode == 'pct_correct' else 'Total Correct' }}
-                  &middot;
-                  Missing: {{ {'zero': 'Count as 0%', 'exclude': 'Exclude', 'penalty': 'Penalty'}.get(at.missing_policy, at.missing_policy) }}
                 </p>
               </div>
               {% if at.name != 'Homework' %}
@@ -75,30 +73,16 @@
           />
         </div>
 
-        <div class="grid gap-4 md:grid-cols-2">
-          <div>
-            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="at_metric">Metric for pairing</label>
-            <select
-              id="at_metric"
-              name="metric_mode"
-              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-            >
-              <option value="pct_correct">Percentage Correct</option>
-              <option value="total_correct">Total Correct</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="at_policy">Missing submission policy</label>
-            <select
-              id="at_policy"
-              name="missing_policy"
-              class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-            >
-              <option value="zero">Count as 0%</option>
-              <option value="exclude">Exclude from denominator</option>
-              <option value="penalty">Missing penalty</option>
-            </select>
-          </div>
+        <div>
+          <label class="text-sm font-semibold text-gray-700 dark:text-gray-200" for="at_metric">Metric for pairing</label>
+          <select
+            id="at_metric"
+            name="metric_mode"
+            class="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+          >
+            <option value="pct_correct">Percentage Correct</option>
+            <option value="total_correct">Total Correct</option>
+          </select>
         </div>
 
         <button

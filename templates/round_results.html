@@ -55,7 +55,7 @@
   <form method="post" class="space-y-6" id="round-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
-    <div class="grid gap-4 rounded-2xl border border-gray-200 bg-white/80 p-4 md:grid-cols-3 dark:border-gray-700 dark:bg-gray-800/80">
+    <div class="grid gap-4 rounded-2xl border border-gray-200 bg-white/80 p-4 md:grid-cols-2 dark:border-gray-700 dark:bg-gray-800/80">
       <div>
         <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Homework total questions</label>
         <input
@@ -65,21 +65,6 @@
           value="{{ round_record.homework_total_questions }}"
           class="autosave-round mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
           data-field="homework_total_questions"
-        />
-      </div>
-      <div>
-        <label class="text-xs font-semibold text-gray-600 dark:text-gray-300">Missing / blank score %</label>
-        <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Empty&thinsp;=&thinsp;exclude &middot; 0&thinsp;=&thinsp;count as 0% &middot; 1–99&thinsp;=&thinsp;treat as that %</p>
-        <input
-          name="missing_score_pct"
-          type="number"
-          step="any"
-          min="0"
-          max="100"
-          {% if round_record.missing_score_pct is not none %}value="{{ round_record.missing_score_pct }}"{% endif %}
-          placeholder="blank = exclude"
-          class="autosave-round mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-          data-field="missing_score_pct"
         />
       </div>
       <div>
