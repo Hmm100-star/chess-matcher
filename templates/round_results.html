@@ -368,7 +368,7 @@
     </div> <!-- end lg:col-span-3 -->
 
     <div class="lg:col-span-1 space-y-4 lg:sticky lg:top-6 mt-6 lg:mt-0">
-      {% set eq_total = (eq_missing_homework|length) + (eq_missing_notation|length) + (eq_unresolved_results|length) + (eq_absences|length) %}
+      {% set eq_total = (eq_missing_homework|length) + (eq_missing_assignments|length) + (eq_missing_notation|length) + (eq_unresolved_results|length) + (eq_absences|length) %}
       {% if eq_round and eq_total == 0 %}
         {% set eq_border = 'border-emerald-200 dark:border-emerald-900/50' %}
         {% set eq_title_color = 'text-emerald-700 dark:text-emerald-400' %}
@@ -395,6 +395,14 @@
           <p class="text-sm text-emerald-600 dark:text-emerald-400">All clear! Excellent.</p>
         {% else %}
           <div class="space-y-4 text-sm">
+            {% if eq_missing_assignments %}
+              <div>
+                <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">Missing assignment scores</h3>
+                <ul class="list-disc pl-5 text-gray-600 dark:text-gray-400 marker:text-rose-400">
+                  {% for item in eq_missing_assignments %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+              </div>
+            {% endif %}
             {% if eq_missing_homework %}
               <div>
                 <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-1">Missing homework</h3>

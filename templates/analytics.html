@@ -379,7 +379,7 @@
         pointHoverRadius: 7,
         stepped: false,
         tension: 0.2,
-        spanGaps: false,
+        spanGaps: true,
         fill: false,
       };
     });
@@ -410,12 +410,40 @@
     });
   }
 
+  // ── Empty-state helper ────────────────────────────────────────────────────
+  function showEmptyState(canvasId, message) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const existing = canvas.parentElement.querySelector('.chart-empty-state');
+    if (existing) existing.remove();
+    const allNull = chart => chart && chart.data.datasets.every(
+      ds => ds.data.every(v => v === null || v === undefined || v === 0)
+    );
+    const chartMap = {
+      'chart-strength': strengthChart,
+      'chart-accuracy': accuracyChart,
+      'chart-chess': chessChart,
+      'chart-attendance': attendanceChart,
+    };
+    if (!allNull(chartMap[canvasId])) return;
+    const div = document.createElement('div');
+    div.className = 'chart-empty-state';
+    div.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;';
+    div.innerHTML = '<span style="font-size:0.85rem;color:#9ca3af;padding:0.5rem 1rem;border:1px dashed #d1d5db;border-radius:0.75rem;background:rgba(255,255,255,0.7)">' + message + '</span>';
+    canvas.parentElement.style.position = 'relative';
+    canvas.parentElement.appendChild(div);
+  }
+
   // ── Draw all on load ───────────────────────────────────────────────────────
   function drawAll() {
     drawStrengthChart();
     drawAccuracyChart();
     drawChessChart();
     drawAttendanceChart();
+    showEmptyState('chart-strength', 'Strength scores will appear after rounds are completed with results recorded.');
+    showEmptyState('chart-accuracy', 'No assignment scores recorded yet.');
+    showEmptyState('chart-chess', 'No chess results recorded yet.');
+    showEmptyState('chart-attendance', 'No attendance recorded yet.');
   }
 
   // ── Student selector listeners ─────────────────────────────────────────────

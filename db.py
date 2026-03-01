@@ -67,6 +67,7 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "missing_score_pct",
         "homework_metric_mode",
         "completion_override_reason",
+        "round_number",
     },
     "attendance": {"id", "round_id", "student_id", "status"},
     "matches": {
@@ -198,6 +199,7 @@ POSTGRES_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
 SQLITE_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
     "ALTER TABLE classrooms ADD COLUMN analytics_win_weight INTEGER DEFAULT 50",
     "ALTER TABLE assignment_types ADD COLUMN analytics_weight INTEGER DEFAULT 50",
+    "ALTER TABLE rounds ADD COLUMN round_number INTEGER",
 )
 
 

@@ -1394,6 +1394,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
             .first()
         )
         eq_missing_homework: list[str] = []
+        eq_missing_assignments: list[str] = []
         eq_missing_notation: list[str] = []
         eq_unresolved_results: list[int] = []
         eq_absences: list[str] = []
@@ -1408,17 +1409,55 @@ def round_results(classroom_id: int, round_id: int) -> str:
             eq_attendance = (
                 db.query(Attendance).filter(Attendance.round_id == eq_round.id).all()
             )
+            eq_round_assignment_types = (
+                db.query(RoundAssignmentType)
+                .options(selectinload(RoundAssignmentType.assignment_type))
+                .filter(RoundAssignmentType.round_id == eq_round.id)
+                .order_by(RoundAssignmentType.id)
+                .all()
+            )
+            eq_absent_ids: set[int] = {
+                r.student_id for r in eq_attendance if r.status in {"absent", "excused"}
+            }
             for m in eq_matches:
                 if m.black_student_id is not None and not m.result:
                     eq_unresolved_results.append(m.id)
-                hw = m.homework_entry
-                if m.white_student_id and (not hw or not hw.white_submitted):
-                    eq_missing_homework.append(f"Match {m.id}: {_student_name(m.white_student_id)}")
-                if m.black_student_id and (not hw or not hw.black_submitted):
-                    eq_missing_homework.append(f"Match {m.id}: {_student_name(m.black_student_id)}")
-                if m.white_student_id and not m.notation_submitted_white:
+
+                if eq_round_assignment_types:
+                    eq_entries_by_type: dict[int, AssignmentEntry] = {
+                        e.assignment_type_id: e for e in m.assignment_entries
+                    }
+                    for rat in eq_round_assignment_types:
+                        entry = eq_entries_by_type.get(rat.assignment_type_id)
+                        type_name = rat.assignment_type.name
+                        if m.white_student_id and m.white_student_id not in eq_absent_ids:
+                            white_ok = entry is not None and (entry.white_submitted or entry.white_exempt)
+                            if not white_ok:
+                                eq_missing_assignments.append(
+                                    f"Match {m.id}: {_student_name(m.white_student_id)} — {type_name}"
+                                )
+                        if m.black_student_id and m.black_student_id not in eq_absent_ids:
+                            black_ok = entry is not None and (entry.black_submitted or entry.black_exempt)
+                            if not black_ok:
+                                eq_missing_assignments.append(
+                                    f"Match {m.id}: {_student_name(m.black_student_id)} — {type_name}"
+                                )
+                else:
+                    hw = m.homework_entry
+                    if m.white_student_id and m.white_student_id not in eq_absent_ids:
+                        if not hw or (not hw.white_submitted and not hw.white_exempt):
+                            eq_missing_homework.append(f"Match {m.id}: {_student_name(m.white_student_id)}")
+                    if m.black_student_id and m.black_student_id not in eq_absent_ids:
+                        if not hw or (not hw.black_submitted and not hw.black_exempt):
+                            eq_missing_homework.append(f"Match {m.id}: {_student_name(m.black_student_id)}")
+
+                if (m.white_student_id
+                        and m.white_student_id not in eq_absent_ids
+                        and not m.notation_submitted_white):
                     eq_missing_notation.append(f"Match {m.id}: {_student_name(m.white_student_id)}")
-                if m.black_student_id and not m.notation_submitted_black:
+                if (m.black_student_id
+                        and m.black_student_id not in eq_absent_ids
+                        and not m.notation_submitted_black):
                     eq_missing_notation.append(f"Match {m.id}: {_student_name(m.black_student_id)}")
             eq_absences = [
                 _student_name(r.student_id)
@@ -1482,6 +1521,7 @@ def round_results(classroom_id: int, round_id: int) -> str:
         error=error,
         eq_round=eq_round,
         eq_missing_homework=eq_missing_homework,
+        eq_missing_assignments=eq_missing_assignments,
         eq_missing_notation=eq_missing_notation,
         eq_unresolved_results=eq_unresolved_results,
         eq_absences=eq_absences,
@@ -1913,6 +1953,8 @@ def exceptions_queue(classroom_id: int) -> str:
                 classroom=classroom,
                 round_record=None,
                 missing_homework=[],
+                missing_assignments=[],
+                uses_assignment_types=False,
                 missing_notation=[],
                 unresolved_results=[],
                 absences=[],
@@ -1935,26 +1977,70 @@ def exceptions_queue(classroom_id: int) -> str:
         student_map = {student.id: student for student in students}
         attendance_records = db.query(Attendance).filter(Attendance.round_id == round_record.id).all()
 
+        round_assignment_types = (
+            db.query(RoundAssignmentType)
+            .options(selectinload(RoundAssignmentType.assignment_type))
+            .filter(RoundAssignmentType.round_id == round_record.id)
+            .order_by(RoundAssignmentType.id)
+            .all()
+        )
+
+        absent_student_ids: set[int] = {
+            r.student_id for r in attendance_records if r.status in {"absent", "excused"}
+        }
+
         def student_name(student_id: int | None) -> str:
             if student_id is None:
                 return "Unknown student"
             student = student_map.get(student_id)
             return student.name if student else f"Student #{student_id}"
 
-        missing_homework = []
-        missing_notation = []
-        unresolved_results = []
+        missing_homework: list[str] = []
+        missing_assignments: list[str] = []
+        missing_notation: list[str] = []
+        unresolved_results: list[int] = []
         for match in matches:
             if match.black_student_id is not None and not match.result:
                 unresolved_results.append(match.id)
-            homework = match.homework_entry
-            if match.white_student_id and (not homework or not homework.white_submitted):
-                missing_homework.append(f"Match {match.id}: {student_name(match.white_student_id)}")
-            if match.black_student_id and (not homework or not homework.black_submitted):
-                missing_homework.append(f"Match {match.id}: {student_name(match.black_student_id)}")
-            if match.white_student_id and not match.notation_submitted_white:
+
+            if round_assignment_types:
+                # New path: per-assignment-type AssignmentEntry records
+                entries_by_type: dict[int, AssignmentEntry] = {
+                    e.assignment_type_id: e for e in match.assignment_entries
+                }
+                for rat in round_assignment_types:
+                    entry = entries_by_type.get(rat.assignment_type_id)
+                    type_name = rat.assignment_type.name
+                    if match.white_student_id and match.white_student_id not in absent_student_ids:
+                        white_ok = entry is not None and (entry.white_submitted or entry.white_exempt)
+                        if not white_ok:
+                            missing_assignments.append(
+                                f"Match {match.id}: {student_name(match.white_student_id)} — {type_name}"
+                            )
+                    if match.black_student_id and match.black_student_id not in absent_student_ids:
+                        black_ok = entry is not None and (entry.black_submitted or entry.black_exempt)
+                        if not black_ok:
+                            missing_assignments.append(
+                                f"Match {match.id}: {student_name(match.black_student_id)} — {type_name}"
+                            )
+            else:
+                # Legacy HomeworkEntry path
+                homework = match.homework_entry
+                if match.white_student_id and match.white_student_id not in absent_student_ids:
+                    if not homework or (not homework.white_submitted and not homework.white_exempt):
+                        missing_homework.append(f"Match {match.id}: {student_name(match.white_student_id)}")
+                if match.black_student_id and match.black_student_id not in absent_student_ids:
+                    if not homework or (not homework.black_submitted and not homework.black_exempt):
+                        missing_homework.append(f"Match {match.id}: {student_name(match.black_student_id)}")
+
+            # Notation — skip absent/excused students
+            if (match.white_student_id
+                    and match.white_student_id not in absent_student_ids
+                    and not match.notation_submitted_white):
                 missing_notation.append(f"Match {match.id}: {student_name(match.white_student_id)}")
-            if match.black_student_id and not match.notation_submitted_black:
+            if (match.black_student_id
+                    and match.black_student_id not in absent_student_ids
+                    and not match.notation_submitted_black):
                 missing_notation.append(f"Match {match.id}: {student_name(match.black_student_id)}")
 
         absences = [
@@ -1968,6 +2054,8 @@ def exceptions_queue(classroom_id: int) -> str:
         classroom=classroom,
         round_record=round_record,
         missing_homework=missing_homework,
+        missing_assignments=missing_assignments,
+        uses_assignment_types=bool(round_assignment_types),
         missing_notation=missing_notation,
         unresolved_results=unresolved_results,
         absences=absences,

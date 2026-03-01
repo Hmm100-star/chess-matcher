@@ -448,9 +448,11 @@ def compute_classroom_analytics(classroom_id: int, db: Any) -> Dict[str, Any]:
 
         if w_id and w_id in student_ids:
             _ensure_chess(w_id)
-            if result == "white" and b_id and b_id in student_ids:
+            if result == "white" and b_id:
+                # Count win even if the opponent has since been deactivated
                 chess_data[w_id][rnum]["wins"] += 1
-            elif result == "black" and b_id and b_id in student_ids:
+            elif result == "black" and b_id:
+                # Count loss even if the opponent has since been deactivated
                 chess_data[w_id][rnum]["losses"] += 1
             elif result == "tie" and b_id:
                 chess_data[w_id][rnum]["ties"] += 1
@@ -461,7 +463,8 @@ def compute_classroom_analytics(classroom_id: int, db: Any) -> Dict[str, Any]:
             _ensure_chess(b_id)
             if result == "black":
                 chess_data[b_id][rnum]["wins"] += 1
-            elif result == "white" and w_id and w_id in student_ids:
+            elif result == "white" and w_id:
+                # Count loss even if the opponent has since been deactivated
                 chess_data[b_id][rnum]["losses"] += 1
             elif result == "tie":
                 chess_data[b_id][rnum]["ties"] += 1
@@ -470,12 +473,14 @@ def compute_classroom_analytics(classroom_id: int, db: Any) -> Dict[str, Any]:
         for entry in (match.assignment_entries or []):
             at_id = entry.assignment_type_id
             if w_id and w_id in student_ids and at_id in assign_data.get(w_id, {}):
-                if not entry.white_exempt and entry.white_submitted:
+                _w_has_score = (int(entry.white_correct or 0) + int(entry.white_incorrect or 0)) > 0
+                if not entry.white_exempt and (entry.white_submitted or _w_has_score):
                     _acc = assign_data[w_id][at_id].setdefault(rnum, {"correct": 0, "incorrect": 0})
                     _acc["correct"] += int(entry.white_correct or 0)
                     _acc["incorrect"] += int(entry.white_incorrect or 0)
             if b_id and b_id in student_ids and at_id in assign_data.get(b_id, {}):
-                if not entry.black_exempt and entry.black_submitted:
+                _b_has_score = (int(entry.black_correct or 0) + int(entry.black_incorrect or 0)) > 0
+                if not entry.black_exempt and (entry.black_submitted or _b_has_score):
                     _acc = assign_data[b_id][at_id].setdefault(rnum, {"correct": 0, "incorrect": 0})
                     _acc["correct"] += int(entry.black_correct or 0)
                     _acc["incorrect"] += int(entry.black_incorrect or 0)
