@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+{% block title %}Analytics · {{ classroom.name }} · Chess Match Selector{% endblock %}
+
+{% block content %}
+{# ── Chart.js ────────────────────────────────────────────────────────────── #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+{# ── Raw analytics data ──────────────────────────────────────────────────── #}
+<script>
+  const ANALYTICS = {{ analytics | tojson }};
+  // ANALYTICS.rounds      – array of round numbers (int)
+  // ANALYTICS.students    – [{id, name, chess, attendance, assignments, strength}, ...]
+  // ANALYTICS.assignment_types – [{id, name, analytics_weight}, ...]
+  // ANALYTICS.analytics_win_weight – int
+</script>
+
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-semibold">Analytics — {{ classroom.name }}</h1>
+    <p class="text-sm text-gray-600 dark:text-gray-300">
+      Strength scores, assignment accuracy, chess results and attendance over time.
+    </p>
+  </div>
+  <a href="{{ url_for('classroom_overview', classroom_id=classroom.id) }}"
+     class="rounded-2xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-indigo-400 hover:text-indigo-600 dark:border-gray-700 dark:text-gray-200">
+    ← Back to classroom
+  </a>
+</div>
+
+{% if not analytics.rounds %}
+  <div class="rounded-2xl border border-dashed border-gray-300 bg-white/90 p-8 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-800/90">
+    No completed rounds yet. Complete at least one round to see analytics.
+  </div>
+{% else %}
+
+{# ── Strength Score Config ────────────────────────────────────────────────── #}
+<details class="mb-6 rounded-3xl bg-white/90 shadow-lg dark:bg-gray-800/90">
+  <summary class="cursor-pointer select-none rounded-3xl px-6 py-4 text-base font-semibold hover:bg-gray-50 dark:hover:bg-gray-700/50">
+    ⚙ Strength Score Weights
+    <span class="ml-2 text-sm font-normal text-gray-500" id="weight-sum-display"></span>
+  </summary>
+  <div class="px-6 pb-6 pt-2">
+    <p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
+      Configure how much each component contributes to the strength score.
+      These weights are independent of the pairing weights used during round generation.
+    </p>
+    <form method="post" action="{{ url_for('save_analytics_config', classroom_id=classroom.id) }}" id="weights-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <label class="flex flex-col gap-1">
+          <span class="text-sm font-semibold text-indigo-600 dark:text-indigo-400">Chess wins</span>
+          <div class="flex items-center gap-2">
+            <input type="range" name="analytics_win_weight" min="0" max="100"
+                   value="{{ analytics.analytics_win_weight }}"
+                   class="flex-1 weight-slider" id="slider-win"
+                   oninput="document.getElementById('num-win').value=this.value;updateWeightSum()" />
+            <input type="number" id="num-win" min="0" max="100"
+                   value="{{ analytics.analytics_win_weight }}"
+                   class="w-16 rounded-xl border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
+                   oninput="document.getElementById('slider-win').value=this.value;updateWeightSum()" />
+            <span class="text-sm text-gray-500">%</span>
+          </div>
+        </label>
+        {% for at in analytics.assignment_types %}
+        <label class="flex flex-col gap-1">
+          <span class="text-sm font-semibold text-purple-600 dark:text-purple-400">{{ at.name }}</span>
+          <div class="flex items-center gap-2">
+            <input type="range" name="at_weight_{{ at.id }}" min="0" max="100"
+                   value="{{ at.analytics_weight }}"
+                   class="flex-1 weight-slider" id="slider-at-{{ at.id }}"
+                   oninput="document.getElementById('num-at-{{ at.id }}').value=this.value;updateWeightSum()" />
+            <input type="number" id="num-at-{{ at.id }}" min="0" max="100"
+                   value="{{ at.analytics_weight }}"
+                   class="w-16 rounded-xl border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
+                   oninput="document.getElementById('slider-at-{{ at.id }}').value=this.value;updateWeightSum()" />
+            <span class="text-sm text-gray-500">%</span>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="mt-4 flex items-center gap-4">
+        <button type="submit"
+                class="rounded-2xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-indigo-500">
+          Save weights &amp; recalculate
+        </button>
+        <span id="weight-sum-warning" class="hidden text-sm font-semibold text-amber-600 dark:text-amber-400">
+          ⚠ Weights sum to <span id="weight-sum-val"></span>% — they will be auto-normalised on save.
+        </span>
+      </div>
+    </form>
+  </div>
+</details>
+
+{# ── Color Configuration ──────────────────────────────────────────────────── #}
+<details class="mb-6 rounded-3xl bg-white/90 shadow-lg dark:bg-gray-800/90">
+  <summary class="cursor-pointer select-none rounded-3xl px-6 py-4 text-base font-semibold hover:bg-gray-50 dark:hover:bg-gray-700/50">
+    🎨 Chart Colors
+    <span class="ml-2 text-sm font-normal text-gray-500">(page-level, resets on reload)</span>
+  </summary>
+  <div class="px-6 pb-6 pt-2">
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {# Chess result colors #}
+      <label class="flex items-center gap-3">
+        <input type="color" id="color-wins" value="#22c55e" class="color-picker h-8 w-14 cursor-pointer rounded border-0 p-0" data-target="chess" />
+        <span class="text-sm font-semibold text-emerald-600">Wins</span>
+      </label>
+      <label class="flex items-center gap-3">
+        <input type="color" id="color-losses" value="#ef4444" class="color-picker h-8 w-14 cursor-pointer rounded border-0 p-0" data-target="chess" />
+        <span class="text-sm font-semibold text-red-500">Losses</span>
+      </label>
+      <label class="flex items-center gap-3">
+        <input type="color" id="color-ties" value="#f59e0b" class="color-picker h-8 w-14 cursor-pointer rounded border-0 p-0" data-target="chess" />
+        <span class="text-sm font-semibold text-amber-500">Ties</span>
+      </label>
+      <label class="flex items-center gap-3">
+        <input type="color" id="color-attendance" value="#6366f1" class="color-picker h-8 w-14 cursor-pointer rounded border-0 p-0" data-target="attendance" />
+        <span class="text-sm font-semibold text-indigo-500">Attendance</span>
+      </label>
+      {# Per-student colors for strength/attendance lines #}
+      {% for student in analytics.students %}
+      <label class="flex items-center gap-3">
+        <input type="color" id="color-student-{{ student.id }}" value="{{ loop.index | student_color }}"
+               class="color-picker h-8 w-14 cursor-pointer rounded border-0 p-0" data-target="student" data-student-id="{{ student.id }}" />
+        <span class="truncate text-sm">{{ student.name }}</span>
+      </label>
+      {% endfor %}
+      {# Per-assignment-type colors #}
+      {% for at in analytics.assignment_types %}
+      <label class="flex items-center gap-3">
+        <input type="color" id="color-at-{{ at.id }}" value="{{ loop.index | at_color }}"
+               class="color-picker h-8 w-14 cursor-pointer rounded border-0 p-0" data-target="assignmentType" data-at-id="{{ at.id }}" />
+        <span class="truncate text-sm font-semibold text-purple-600 dark:text-purple-400">{{ at.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+</details>
+
+{# ── Charts Grid ─────────────────────────────────────────────────────────── #}
+<div class="grid gap-6 lg:grid-cols-2">
+
+  {# Chart 1: Strength Score Trend #}
+  <div class="rounded-3xl bg-white/90 p-6 shadow-lg dark:bg-gray-800/90">
+    <h2 class="mb-4 text-lg font-semibold">Strength Score Trend</h2>
+    <canvas id="chart-strength" height="220"></canvas>
+  </div>
+
+  {# Chart 2: Assignment Accuracy (per student) #}
+  <div class="rounded-3xl bg-white/90 p-6 shadow-lg dark:bg-gray-800/90">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <h2 class="text-lg font-semibold">Assignment Accuracy</h2>
+      <select id="student-select-accuracy"
+              class="rounded-xl border border-gray-300 bg-white px-3 py-1 text-sm dark:border-gray-600 dark:bg-gray-900">
+        {% for student in analytics.students %}
+        <option value="{{ student.id }}" {% if loop.first %}selected{% endif %}>{{ student.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <canvas id="chart-accuracy" height="220"></canvas>
+  </div>
+
+  {# Chart 3: Chess Results (per student) #}
+  <div class="rounded-3xl bg-white/90 p-6 shadow-lg dark:bg-gray-800/90">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <h2 class="text-lg font-semibold">Chess Results per Round</h2>
+      <select id="student-select-chess"
+              class="rounded-xl border border-gray-300 bg-white px-3 py-1 text-sm dark:border-gray-600 dark:bg-gray-900">
+        {% for student in analytics.students %}
+        <option value="{{ student.id }}" {% if loop.first %}selected{% endif %}>{{ student.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <canvas id="chart-chess" height="220"></canvas>
+  </div>
+
+  {# Chart 4: Attendance Rate #}
+  <div class="rounded-3xl bg-white/90 p-6 shadow-lg dark:bg-gray-800/90">
+    <h2 class="mb-4 text-lg font-semibold">Attendance (Present per Round)</h2>
+    <canvas id="chart-attendance" height="220"></canvas>
+  </div>
+
+</div>
+{% endif %} {# end if rounds #}
+
+{# ── JavaScript ──────────────────────────────────────────────────────────── #}
+<script>
+(function () {
+  if (!window.ANALYTICS || !ANALYTICS.rounds || !ANALYTICS.rounds.length) return;
+
+  const rounds = ANALYTICS.rounds;              // [1, 2, 3, ...]
+  const roundLabels = rounds.map(r => 'Rd ' + r);
+  const students = ANALYTICS.students;
+  const atTypes = ANALYTICS.assignment_types;
+
+  // ── Color helpers ─────────────────────────────────────────────────────────
+  const DEFAULT_STUDENT_COLORS = [
+    '#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4',
+    '#a855f7','#ec4899','#84cc16','#f97316','#14b8a6',
+    '#e11d48','#0ea5e9','#d97706','#7c3aed','#047857',
+  ];
+  const DEFAULT_AT_COLORS = [
+    '#8b5cf6','#f59e0b','#0ea5e9','#10b981','#f43f5e',
+    '#64748b','#d97706','#06b6d4',
+  ];
+
+  function getColor(id) {
+    const el = document.getElementById(id);
+    return el ? el.value : '#6366f1';
+  }
+  function studentColor(studentId) {
+    return getColor('color-student-' + studentId);
+  }
+  function atColor(atId) {
+    return getColor('color-at-' + atId);
+  }
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // ── Chart instances ────────────────────────────────────────────────────────
+  let strengthChart, accuracyChart, chessChart, attendanceChart;
+
+  const chartDefaults = {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { position: 'bottom' } },
+    scales: { x: { grid: { display: false } } },
+  };
+
+  // ── Chart 1: Strength Score Trend ─────────────────────────────────────────
+  function buildStrengthDatasets() {
+    return students.map(s => {
+      const color = studentColor(s.id);
+      return {
+        label: s.name,
+        data: rounds.map(r => s.strength[String(r)] ?? null),
+        borderColor: color,
+        backgroundColor: hexToRgba(color, 0.1),
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.3,
+        spanGaps: true,
+      };
+    });
+  }
+
+  function drawStrengthChart() {
+    const ctx = document.getElementById('chart-strength');
+    if (!ctx) return;
+    const datasets = buildStrengthDatasets();
+    if (strengthChart) { strengthChart.destroy(); }
+    strengthChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: roundLabels, datasets },
+      options: {
+        ...chartDefaults,
+        scales: {
+          ...chartDefaults.scales,
+          y: { min: 0, max: 100, title: { display: true, text: 'Strength (%)' } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 2: Assignment Accuracy (per student) ────────────────────────────
+  function buildAccuracyDatasets(studentId) {
+    const student = students.find(s => s.id == studentId);
+    if (!student) return [];
+    return atTypes.map(at => {
+      const color = atColor(at.id);
+      return {
+        label: at.name,
+        data: rounds.map(r => {
+          const entry = student.assignments[String(at.id)]?.[String(r)];
+          return entry && entry.pct != null ? entry.pct : null;
+        }),
+        borderColor: color,
+        backgroundColor: hexToRgba(color, 0.1),
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.3,
+        spanGaps: true,
+      };
+    });
+  }
+
+  function drawAccuracyChart() {
+    const ctx = document.getElementById('chart-accuracy');
+    if (!ctx) return;
+    const sel = document.getElementById('student-select-accuracy');
+    const studentId = sel ? Number(sel.value) : (students[0] ? students[0].id : null);
+    const datasets = buildAccuracyDatasets(studentId);
+    if (accuracyChart) { accuracyChart.destroy(); }
+    if (!datasets.length) {
+      accuracyChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: roundLabels, datasets: [] },
+        options: { ...chartDefaults, plugins: { legend: { position: 'bottom' }, title: { display: true, text: 'No assignment types defined.' } } },
+      });
+      return;
+    }
+    accuracyChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: roundLabels, datasets },
+      options: {
+        ...chartDefaults,
+        scales: {
+          ...chartDefaults.scales,
+          y: { min: 0, max: 100, title: { display: true, text: 'Accuracy (%)' } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 3: Chess Results (stacked bar per student) ─────────────────────
+  function buildChessDatasets(studentId) {
+    const student = students.find(s => s.id == studentId);
+    if (!student) return [];
+    return [
+      {
+        label: 'Wins',
+        data: rounds.map(r => student.chess[String(r)]?.wins ?? 0),
+        backgroundColor: getColor('color-wins'),
+        stack: 'chess',
+      },
+      {
+        label: 'Losses',
+        data: rounds.map(r => student.chess[String(r)]?.losses ?? 0),
+        backgroundColor: getColor('color-losses'),
+        stack: 'chess',
+      },
+      {
+        label: 'Ties',
+        data: rounds.map(r => student.chess[String(r)]?.ties ?? 0),
+        backgroundColor: getColor('color-ties'),
+        stack: 'chess',
+      },
+    ];
+  }
+
+  function drawChessChart() {
+    const ctx = document.getElementById('chart-chess');
+    if (!ctx) return;
+    const sel = document.getElementById('student-select-chess');
+    const studentId = sel ? Number(sel.value) : (students[0] ? students[0].id : null);
+    const datasets = buildChessDatasets(studentId);
+    if (chessChart) { chessChart.destroy(); }
+    chessChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: roundLabels, datasets },
+      options: {
+        ...chartDefaults,
+        scales: {
+          ...chartDefaults.scales,
+          y: { stacked: true, ticks: { stepSize: 1 }, title: { display: true, text: 'Games' } },
+          x: { stacked: true, grid: { display: false } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 4: Attendance ───────────────────────────────────────────────────
+  function buildAttendanceDatasets() {
+    return students.map(s => {
+      const color = studentColor(s.id);
+      return {
+        label: s.name,
+        data: rounds.map(r => {
+          const status = s.attendance[String(r)];
+          if (status === undefined || status === null) return null;
+          return status === 'present' || status === 'late' ? 1 : 0;
+        }),
+        borderColor: color,
+        backgroundColor: hexToRgba(color, 0.15),
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        stepped: false,
+        tension: 0.2,
+        spanGaps: false,
+        fill: false,
+      };
+    });
+  }
+
+  function drawAttendanceChart() {
+    const ctx = document.getElementById('chart-attendance');
+    if (!ctx) return;
+    const datasets = buildAttendanceDatasets();
+    if (attendanceChart) { attendanceChart.destroy(); }
+    attendanceChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: roundLabels, datasets },
+      options: {
+        ...chartDefaults,
+        scales: {
+          ...chartDefaults.scales,
+          y: {
+            min: -0.1, max: 1.1,
+            ticks: {
+              stepSize: 1,
+              callback: v => v === 1 ? 'Present' : v === 0 ? 'Absent' : '',
+            },
+            title: { display: true, text: 'Attendance' },
+          },
+        },
+      },
+    });
+  }
+
+  // ── Draw all on load ───────────────────────────────────────────────────────
+  function drawAll() {
+    drawStrengthChart();
+    drawAccuracyChart();
+    drawChessChart();
+    drawAttendanceChart();
+  }
+
+  // ── Student selector listeners ─────────────────────────────────────────────
+  const selAcc = document.getElementById('student-select-accuracy');
+  const selChess = document.getElementById('student-select-chess');
+  if (selAcc) selAcc.addEventListener('change', drawAccuracyChart);
+  if (selChess) selChess.addEventListener('change', drawChessChart);
+
+  // ── Color picker listeners ─────────────────────────────────────────────────
+  document.querySelectorAll('.color-picker').forEach(el => {
+    el.addEventListener('input', function () {
+      const target = this.dataset.target;
+      if (target === 'chess') { drawChessChart(); }
+      else if (target === 'attendance') { /* attendance uses per-student colors */ drawAttendanceChart(); }
+      else if (target === 'student') { drawStrengthChart(); drawAttendanceChart(); }
+      else if (target === 'assignmentType') { drawAccuracyChart(); }
+    });
+  });
+
+  // ── Weight sum display ─────────────────────────────────────────────────────
+  function updateWeightSum() {
+    let total = 0;
+    document.querySelectorAll('.weight-slider').forEach(el => {
+      total += Number(el.value) || 0;
+    });
+    const warn = document.getElementById('weight-sum-warning');
+    const val = document.getElementById('weight-sum-val');
+    const disp = document.getElementById('weight-sum-display');
+    if (disp) disp.textContent = '(sum: ' + total + '%)';
+    if (val) val.textContent = total;
+    if (warn) { warn.classList.toggle('hidden', total === 100); }
+  }
+
+  updateWeightSum();
+  drawAll();
+})();
+</script>
+{% endblock %}

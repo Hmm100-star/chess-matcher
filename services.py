@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
@@ -338,3 +338,209 @@ def apply_homework_policy(
         wrong = max(total_questions - parsed_correct, 0)
     pct_wrong = (wrong / total_questions) if total_questions > 0 else 0.0
     return parsed_correct, wrong, True, pct_wrong
+
+
+def compute_classroom_analytics(classroom_id: int, db: Any) -> Dict[str, Any]:
+    """Build the full analytics data dict for the analytics page.
+
+    Returns a dict with keys:
+      - ``rounds``           list of round numbers (ints) for all completed rounds
+      - ``round_ids``        parallel list of round DB ids
+      - ``students``         list of per-student dicts (see below)
+      - ``assignment_types`` list of {id, name, analytics_weight}
+      - ``analytics_win_weight`` int
+
+    Per-student dict keys:
+      ``id``, ``name``,
+      ``chess``       – {round_number: {wins, losses, ties, bye}},
+      ``attendance``  – {round_number: status string (or None)},
+      ``assignments`` – {at_id: {round_number: {correct, incorrect, pct}}},
+      ``strength``    – {round_number: float}  (NaN-safe, None if not computable)
+    """
+    from models import Attendance, AssignmentType, Classroom, Round, Match, AssignmentEntry
+    from sqlalchemy.orm import selectinload
+
+    classroom: Classroom = db.query(Classroom).filter(Classroom.id == classroom_id).first()
+    if classroom is None:
+        return {"rounds": [], "round_ids": [], "students": [], "assignment_types": [], "analytics_win_weight": 50}
+
+    analytics_win_weight: int = getattr(classroom, "analytics_win_weight", 50) or 50
+
+    # Fetch assignment types for this classroom
+    assignment_types_raw = classroom.assignment_types  # already ordered by id
+    at_list = [
+        {
+            "id": at.id,
+            "name": at.name,
+            "analytics_weight": getattr(at, "analytics_weight", 50) or 50,
+        }
+        for at in assignment_types_raw
+    ]
+
+    # Fetch all completed rounds ordered by round_number / id
+    rounds_q = (
+        db.query(Round)
+        .filter(Round.classroom_id == classroom_id, Round.status == "completed")
+        .order_by(Round.round_number.nullslast(), Round.id)
+        .all()
+    )
+    round_numbers = [
+        r.round_number if r.round_number is not None else r.id for r in rounds_q
+    ]
+    round_ids = [r.id for r in rounds_q]
+
+    if not rounds_q:
+        students_out = []
+        for student in classroom.students:
+            if student.active:
+                students_out.append(_empty_student_entry(student, at_list))
+        return {
+            "rounds": round_numbers,
+            "round_ids": round_ids,
+            "students": students_out,
+            "assignment_types": at_list,
+            "analytics_win_weight": analytics_win_weight,
+        }
+
+    # Fetch all matches for these rounds (with assignment entries eager-loaded)
+    all_matches = (
+        db.query(Match)
+        .filter(Match.round_id.in_(round_ids))
+        .options(selectinload(Match.assignment_entries))
+        .all()
+    )
+
+    # Fetch all attendance for these rounds
+    all_attendance = (
+        db.query(Attendance)
+        .filter(Attendance.round_id.in_(round_ids))
+        .all()
+    )
+
+    # Index by round_id for quick lookup
+    round_id_to_number = {r.id: (r.round_number if r.round_number is not None else r.id) for r in rounds_q}
+
+    # Build per-student data structures
+    active_students = [s for s in classroom.students if s.active]
+
+    # {student_id: {round_number: {"wins": int, "losses": int, "ties": int, "bye": bool}}}
+    chess_data: Dict[int, Dict[int, Dict[str, Any]]] = {s.id: {} for s in active_students}
+    # {student_id: {round_number: status_str | None}}
+    attendance_data: Dict[int, Dict[int, Optional[str]]] = {s.id: {} for s in active_students}
+    # {student_id: {at_id: {round_number: {correct, incorrect, pct}}}}
+    assign_data: Dict[int, Dict[int, Dict[int, Dict[str, Any]]]] = {
+        s.id: {at["id"]: {} for at in at_list} for s in active_students
+    }
+
+    student_ids = {s.id for s in active_students}
+
+    for match in all_matches:
+        rnum = round_id_to_number.get(match.round_id)
+        if rnum is None:
+            continue
+        result = (match.result or "").lower()
+        w_id = match.white_student_id
+        b_id = match.black_student_id
+
+        def _ensure_chess(sid: int) -> None:
+            if sid in chess_data and rnum not in chess_data[sid]:
+                chess_data[sid][rnum] = {"wins": 0, "losses": 0, "ties": 0, "bye": False}
+
+        if w_id and w_id in student_ids:
+            _ensure_chess(w_id)
+            if result == "white" and b_id and b_id in student_ids:
+                chess_data[w_id][rnum]["wins"] += 1
+            elif result == "black" and b_id and b_id in student_ids:
+                chess_data[w_id][rnum]["losses"] += 1
+            elif result == "tie" and b_id:
+                chess_data[w_id][rnum]["ties"] += 1
+            elif result == "bye":
+                chess_data[w_id][rnum]["bye"] = True
+
+        if b_id and b_id in student_ids:
+            _ensure_chess(b_id)
+            if result == "black":
+                chess_data[b_id][rnum]["wins"] += 1
+            elif result == "white" and w_id and w_id in student_ids:
+                chess_data[b_id][rnum]["losses"] += 1
+            elif result == "tie":
+                chess_data[b_id][rnum]["ties"] += 1
+
+        # Assignment entries
+        for entry in (match.assignment_entries or []):
+            at_id = entry.assignment_type_id
+            if w_id and w_id in student_ids and at_id in assign_data.get(w_id, {}):
+                if not entry.white_exempt and entry.white_submitted:
+                    _acc = assign_data[w_id][at_id].setdefault(rnum, {"correct": 0, "incorrect": 0})
+                    _acc["correct"] += int(entry.white_correct or 0)
+                    _acc["incorrect"] += int(entry.white_incorrect or 0)
+            if b_id and b_id in student_ids and at_id in assign_data.get(b_id, {}):
+                if not entry.black_exempt and entry.black_submitted:
+                    _acc = assign_data[b_id][at_id].setdefault(rnum, {"correct": 0, "incorrect": 0})
+                    _acc["correct"] += int(entry.black_correct or 0)
+                    _acc["incorrect"] += int(entry.black_incorrect or 0)
+
+    # Attendance
+    for rec in all_attendance:
+        rnum = round_id_to_number.get(rec.round_id)
+        if rnum is not None and rec.student_id in attendance_data:
+            attendance_data[rec.student_id][rnum] = rec.status
+
+    # Compute pct for assignment entries and strength scores
+    # Normalise analytics weights
+    raw_weights = [analytics_win_weight] + [at["analytics_weight"] for at in at_list]
+    weight_sum = sum(raw_weights) or 1
+    norm_win = analytics_win_weight / weight_sum
+    norm_at_weights = [at["analytics_weight"] / weight_sum for at in at_list]
+
+    students_out = []
+    for student in active_students:
+        sid = student.id
+        # Finalise assignment pct
+        for at in at_list:
+            at_id = at["id"]
+            for rnum, acc in assign_data[sid][at_id].items():
+                total = acc["correct"] + acc["incorrect"]
+                acc["pct"] = round(acc["correct"] / total * 100, 1) if total else None
+
+        # Compute strength score per round
+        strength: Dict[int, Optional[float]] = {}
+        for rnum in round_numbers:
+            c_data = chess_data[sid].get(rnum, {"wins": 0, "losses": 0, "ties": 0})
+            games = c_data["wins"] + c_data["losses"] + c_data["ties"]
+            win_rate = c_data["wins"] / games if games else 0.0
+            score = norm_win * win_rate
+            for i, at in enumerate(at_list):
+                at_id = at["id"]
+                rnd_assign = assign_data[sid][at_id].get(rnum)
+                if rnd_assign and rnd_assign.get("pct") is not None:
+                    score += norm_at_weights[i] * (rnd_assign["pct"] / 100.0)
+            strength[rnum] = round(score * 100, 1)
+
+        students_out.append({
+            "id": sid,
+            "name": student.name,
+            "chess": chess_data[sid],
+            "attendance": attendance_data[sid],
+            "assignments": assign_data[sid],
+            "strength": strength,
+        })
+
+    return {
+        "rounds": round_numbers,
+        "round_ids": round_ids,
+        "students": students_out,
+        "assignment_types": at_list,
+        "analytics_win_weight": analytics_win_weight,
+    }
+
+
+def _empty_student_entry(student: Student, at_list: List[Dict]) -> Dict[str, Any]:
+    return {
+        "id": student.id,
+        "name": student.name,
+        "chess": {},
+        "attendance": {},
+        "assignments": {at["id"]: {} for at in at_list},
+        "strength": {},
+    }

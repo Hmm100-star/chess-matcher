@@ -33,6 +33,7 @@ from db import (
     Base,
     IS_PRODUCTION,
     apply_postgres_schema_compatibility_patch,
+    apply_sqlite_schema_compatibility_patch,
     database_url_warnings,
     engine,
     redacted_database_url,
@@ -57,6 +58,7 @@ from pairing_logic import normalize_weights
 from services import (
     apply_homework_policy,
     canonicalize_homework_metric_mode,
+    compute_classroom_analytics,
     create_match_records,
     generate_matches_for_students,
     recalculate_totals,
@@ -98,6 +100,11 @@ def initialize_database() -> None:
             extra={"database_url": redacted_database_url()},
         )
         Base.metadata.create_all(bind=engine)
+        # Apply dialect-specific schema patches so new columns land even on
+        # existing databases without a full migration run.
+        sqlite_patched = apply_sqlite_schema_compatibility_patch()
+        if sqlite_patched:
+            logger.info("Applied SQLite schema compatibility patch")
         # Always apply the Postgres compatibility patch in production so that
         # idempotent fixes (e.g. dropping stale FK constraints) run even when
         # the column-level schema check reports no issues.
@@ -143,6 +150,30 @@ if not logger.handlers:
 
 for warning in database_url_warnings():
     logger.warning(warning, extra={"database_url": redacted_database_url()})
+
+
+# ── Jinja2 template filters ──────────────────────────────────────────────────
+_STUDENT_PALETTE = [
+    "#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4",
+    "#a855f7", "#ec4899", "#84cc16", "#f97316", "#14b8a6",
+    "#e11d48", "#0ea5e9", "#d97706", "#7c3aed", "#047857",
+]
+_AT_PALETTE = [
+    "#8b5cf6", "#f59e0b", "#0ea5e9", "#10b981", "#f43f5e",
+    "#64748b", "#d97706", "#06b6d4",
+]
+
+
+@app.template_filter("student_color")
+def student_color_filter(loop_index: int) -> str:
+    """Return a default hex color for the nth student (1-based loop index)."""
+    return _STUDENT_PALETTE[(loop_index - 1) % len(_STUDENT_PALETTE)]
+
+
+@app.template_filter("at_color")
+def at_color_filter(loop_index: int) -> str:
+    """Return a default hex color for the nth assignment type (1-based loop index)."""
+    return _AT_PALETTE[(loop_index - 1) % len(_AT_PALETTE)]
 
 
 @app.before_request
@@ -2167,6 +2198,60 @@ def import_students(classroom_id: int) -> str:
 @app.route("/about")
 def about_page() -> str:
     return render_template("about.html", active_nav="about")
+
+
+@app.route("/classrooms/<int:classroom_id>/analytics")
+def classroom_analytics(classroom_id: int) -> str:
+    teacher = require_login()
+    if not isinstance(teacher, Teacher):
+        return teacher
+    with session_scope() as db:
+        classroom = get_classroom_or_404(classroom_id, teacher.id)
+        analytics = compute_classroom_analytics(classroom_id, db)
+        return render_template(
+            "analytics.html",
+            classroom=classroom,
+            analytics=analytics,
+            active_nav="dashboard",
+            breadcrumbs=[
+                {"label": "Dashboard", "url": url_for("dashboard")},
+                {"label": classroom.name, "url": url_for("classroom_overview", classroom_id=classroom.id)},
+                {"label": "Analytics"},
+            ],
+        )
+
+
+@app.route("/classrooms/<int:classroom_id>/analytics/config", methods=["POST"])
+def save_analytics_config(classroom_id: int):
+    require_csrf()
+    teacher = require_login()
+    if not isinstance(teacher, Teacher):
+        return teacher
+    with session_scope() as db:
+        classroom = get_classroom_or_404(classroom_id, teacher.id)
+        try:
+            win_w = int(request.form.get("analytics_win_weight", 50))
+            win_w = max(0, min(100, win_w))
+        except (ValueError, TypeError):
+            win_w = 50
+        classroom.analytics_win_weight = win_w
+
+        at_types = (
+            db.query(AssignmentType)
+            .filter(AssignmentType.classroom_id == classroom_id)
+            .all()
+        )
+        for at in at_types:
+            key = f"at_weight_{at.id}"
+            try:
+                w = int(request.form.get(key, 50))
+                w = max(0, min(100, w))
+            except (ValueError, TypeError):
+                w = 50
+            at.analytics_weight = w
+
+        db.add(classroom)
+    return redirect(url_for("classroom_analytics", classroom_id=classroom_id))
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ Base = declarative_base()
 
 REQUIRED_SCHEMA: dict[str, set[str]] = {
     "teachers": {"id", "username", "password_hash", "created_at"},
-    "classrooms": {"id", "teacher_id", "name", "created_at"},
+    "classrooms": {"id", "teacher_id", "name", "created_at", "analytics_win_weight"},
     "students": {
         "id",
         "classroom_id",
@@ -114,6 +114,7 @@ REQUIRED_SCHEMA: dict[str, set[str]] = {
         "metric_mode",
         "missing_policy",
         "created_at",
+        "analytics_weight",
     },
     "round_assignment_types": {
         "id",
@@ -187,7 +188,38 @@ POSTGRES_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
     "CREATE TABLE IF NOT EXISTS round_assignment_types (id SERIAL PRIMARY KEY, round_id INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE, assignment_type_id INTEGER NOT NULL REFERENCES assignment_types(id) ON DELETE CASCADE, weight INTEGER NOT NULL DEFAULT 30, total_questions INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS assignment_entries (id SERIAL PRIMARY KEY, match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE, assignment_type_id INTEGER NOT NULL REFERENCES assignment_types(id) ON DELETE CASCADE, white_correct INTEGER NOT NULL DEFAULT 0, white_incorrect INTEGER NOT NULL DEFAULT 0, black_correct INTEGER NOT NULL DEFAULT 0, black_incorrect INTEGER NOT NULL DEFAULT 0, white_submitted BOOLEAN NOT NULL DEFAULT FALSE, black_submitted BOOLEAN NOT NULL DEFAULT FALSE, white_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0.0, black_pct_wrong DOUBLE PRECISION NOT NULL DEFAULT 0.0, white_exempt BOOLEAN NOT NULL DEFAULT FALSE, black_exempt BOOLEAN NOT NULL DEFAULT FALSE)",
     "CREATE TABLE IF NOT EXISTS student_assignment_scores (id SERIAL PRIMARY KEY, student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE, assignment_type_id INTEGER NOT NULL REFERENCES assignment_types(id) ON DELETE CASCADE, correct INTEGER NOT NULL DEFAULT 0, incorrect INTEGER NOT NULL DEFAULT 0, UNIQUE (student_id, assignment_type_id))",
+    # Analytics config
+    "ALTER TABLE IF EXISTS classrooms ADD COLUMN IF NOT EXISTS analytics_win_weight INTEGER DEFAULT 50",
+    "ALTER TABLE IF EXISTS assignment_types ADD COLUMN IF NOT EXISTS analytics_weight INTEGER DEFAULT 50",
 )
+
+# SQLite-compatible migration statements (no IF NOT EXISTS for ALTER TABLE).
+# Each statement is run individually; "duplicate column" errors are silently ignored.
+SQLITE_COMPATIBILITY_PATCH_STATEMENTS: tuple[str, ...] = (
+    "ALTER TABLE classrooms ADD COLUMN analytics_win_weight INTEGER DEFAULT 50",
+    "ALTER TABLE assignment_types ADD COLUMN analytics_weight INTEGER DEFAULT 50",
+)
+
+
+def apply_sqlite_schema_compatibility_patch() -> bool:
+    """Apply idempotent schema updates for SQLite development databases.
+
+    SQLite does not support IF NOT EXISTS in ALTER TABLE, so each statement is
+    executed individually and OperationalError (duplicate column) is suppressed.
+    Returns True when running on SQLite and the statements were attempted.
+    """
+    if engine.dialect.name != "sqlite":
+        return False
+
+    from sqlalchemy.exc import OperationalError
+
+    with engine.begin() as connection:
+        for statement in SQLITE_COMPATIBILITY_PATCH_STATEMENTS:
+            try:
+                connection.execute(text(statement))
+            except OperationalError:
+                pass  # Column already exists — safe to ignore.
+    return True
 
 
 def redacted_database_url(url: str | None = None) -> str:

@@ -27,6 +27,8 @@ class Classroom(Base):
     name = Column(String(200), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    analytics_win_weight = Column(Integer, default=50, nullable=False)
+
     teacher = relationship("Teacher", back_populates="classrooms")
     students = relationship("Student", back_populates="classroom", cascade="all, delete-orphan")
     rounds = relationship("Round", back_populates="classroom", cascade="all, delete-orphan")
@@ -145,6 +147,7 @@ class AssignmentType(Base):
     metric_mode = Column(String(20), default="pct_correct", nullable=False)
     missing_policy = Column(String(20), default="zero", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    analytics_weight = Column(Integer, default=50, nullable=False)
 
     classroom = relationship("Classroom", back_populates="assignment_types")
     round_assignment_types = relationship(

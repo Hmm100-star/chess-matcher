@@ -1,2 +1,2 @@
-Student progress analysics (show students who are falling behind, show students who are doing well, show students who are improving, each student has "progress" page showing their progress over time (homework scores, round scores, etc.))
-Option to add "bonus" points for homework / assignment (extra credit for doing more than the required amount of homework / assignment)
+Student progress analysics (show students who are falling behind, show students who are doing well, show students who are improving, 
+student progress analytics for each student, each student has "progress" page showing their progress over time (homework scores, round scores, etc.))
